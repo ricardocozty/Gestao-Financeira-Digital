@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gestão Financeira Flow Enterprise</title>
+    <title>Gestão Flow</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -24,6 +24,13 @@
                     boxShadow: {
                         'soft': '0 2px 10px rgba(0, 0, 0, 0.03)',
                         'float': '0 10px 25px -5px rgba(255, 110, 4, 0.4)',
+                    },
+                    screens: {
+                        'xs': '475px', // Adicionado breakpoint extra para celulares pequenos
+                        'sm': '640px',
+                        'md': '768px', // Tablet (iPad Portrait)
+                        'lg': '1024px', // Desktop/Tablet Landscape
+                        'xl': '1280px',
                     }
                 }
             }
@@ -65,12 +72,13 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
-<!-- Body limpo para não interferir nos layouts filhos -->
+<!-- Body limpo e ocupando toda a tela -->
 <body class="bg-sp-bg text-gray-800 h-screen w-full overflow-hidden">
 
-    <!-- App Container neutro -->
-    <div id="app" class="w-full h-full">
-        <div class="w-full h-full flex items-center justify-center bg-gray-100">
+    <!-- App Container -->
+    <div id="app" class="w-full h-full relative">
+        <!-- Loading Inicial -->
+        <div class="w-full h-full flex items-center justify-center bg-gray-100 absolute z-50">
             <div class="loader"></div>
         </div>
     </div>
@@ -276,7 +284,7 @@
             deleteBudget(selectedCat);
         }
 
-        // --- Componentes UI ---
+        // --- Componentes UI (Responsivo Mobile/Tablet/Desktop) ---
 
         function renderMonthlyReport(transactionsArray) {
             const pnl = calculateMonthlyPnl(transactionsArray);
@@ -307,6 +315,42 @@
             `;
         }
 
+        // Layout Mobile Header Compacto
+        function renderMobileHeader(user) {
+            return `
+                <div class="md:hidden fixed top-0 left-0 right-0 h-14 bg-gradient-to-r from-sp-primary to-sp-secondary z-40 flex items-center justify-between px-4 shadow-md">
+                    <div class="flex items-center gap-2 text-white">
+                        <div class="w-8 h-8 rounded bg-white/20 flex items-center justify-center"><i class="fa-solid fa-arrow-trend-up text-sm"></i></div>
+                        <span class="font-bold text-lg tracking-tight">Flow<span class="font-light opacity-80">PRO</span></span>
+                    </div>
+                    <div class="flex items-center bg-black/20 rounded-full px-3 py-1">
+                        <input type="month" id="mobile-date" value="${currentDateFilter}" class="bg-transparent text-white text-xs font-medium outline-none w-24">
+                    </div>
+                </div>
+            `;
+        }
+
+        // Layout Mobile Bottom Nav
+        function renderBottomNav() {
+            return `
+                <div class="md:hidden fixed bottom-0 left-0 right-0 bottom-nav h-16 flex items-center justify-around z-[60] px-2 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
+                    <button onclick="window.dispatchEvent(new CustomEvent('nav-change', {detail:'dashboard'}))" class="bottom-nav-item flex flex-col items-center p-2 ${currentView==='dashboard'?'active':''}">
+                        <i class="fa-solid fa-grip text-xl mb-1"></i><span class="text-[10px] font-medium">Início</span>
+                    </button>
+                    <button onclick="window.dispatchEvent(new CustomEvent('nav-change', {detail:'metas'}))" class="bottom-nav-item flex flex-col items-center p-2 ${currentView==='metas'?'active':''}">
+                        <i class="fa-solid fa-bullseye text-xl mb-1"></i><span class="text-[10px] font-medium">Metas</span>
+                    </button>
+                    <div class="w-12"></div> <!-- Espaço para FAB -->
+                    <button onclick="exportToCSV()" class="bottom-nav-item flex flex-col items-center p-2">
+                        <i class="fa-solid fa-file-csv text-xl mb-1"></i><span class="text-[10px] font-medium">CSV</span>
+                    </button>
+                    <button onclick="signOut(auth)" class="bottom-nav-item flex flex-col items-center p-2 text-red-400">
+                        <i class="fa-solid fa-power-off text-xl mb-1"></i><span class="text-[10px] font-medium">Sair</span>
+                    </button>
+                </div>
+            `;
+        }
+
         function renderBudgetsView() {
             const monthTrans = transactions.filter(t => filterByMonth(t, currentDateFilter));
             const activeCategories = Object.keys(budgets);
@@ -318,7 +362,7 @@
                 return `<div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all relative group"><button onclick="window.dispatchEvent(new CustomEvent('delete-budget', {detail: '${cat}'}))" class="absolute top-2 right-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-2"><i class="fa-solid fa-trash"></i></button><div class="flex justify-between items-center mb-2"><h3 class="font-bold text-gray-700">${cat}</h3><span class="text-xs font-bold px-2 py-1 rounded ${percentage > 100 ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600'}">${percentage.toFixed(0)}%</span></div><div class="progress-bar-bg mb-4"><div class="progress-bar-fill ${colorClass}" style="width: ${Math.min(percentage, 100)}%"></div></div><div class="flex justify-between items-center border-t border-gray-50 pt-3"><div class="text-sm text-gray-600">Gasto: <span class="font-bold text-gray-800">${formatCurrency(spent)}</span></div><div class="flex items-center gap-2"><span class="text-xs text-gray-400">Meta:</span><input type="number" value="${limit}" onchange="window.dispatchEvent(new CustomEvent('save-budget', {detail: {cat: '${cat}', val: this.value}}))" class="w-24 p-1 text-right text-sm border border-gray-200 rounded focus:ring-2 focus:ring-sp-primary outline-none"></div></div></div>`;
             }).join('');
             const addCard = `<div class="bg-white p-5 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-center hover:border-sp-primary transition-colors group h-full min-h-[180px]"><div class="w-12 h-12 rounded-full bg-gray-50 group-hover:bg-sp-primary group-hover:text-white flex items-center justify-center text-gray-400 transition-colors mb-3"><i class="fa-solid fa-plus text-xl"></i></div><h3 class="font-bold text-gray-700 mb-2">Nova Categoria</h3><form onsubmit="event.preventDefault(); window.dispatchEvent(new CustomEvent('save-budget', {detail: {cat: this.newcat.value, val: this.newval.value || 0}})); this.reset();" class="w-full"><input name="newcat" type="text" placeholder="Nome" class="w-full mb-2 p-2 text-sm border rounded outline-none" required><input name="newval" type="number" placeholder="Limite" class="w-full mb-3 p-2 text-sm border rounded outline-none" required><button type="submit" class="text-xs font-bold text-sp-primary uppercase hover:underline">Criar</button></form></div>`;
-            return `<div class="animate-fade-in-up max-w-6xl mx-auto"><div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4"><div><h2 class="text-2xl font-bold text-gray-900">Planejamento</h2><p class="text-gray-500 text-sm">Defina limites.</p></div><div class="bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200"><span class="text-xs text-gray-400 uppercase tracking-wider">Mês:</span><span class="font-bold text-sp-primary ml-1">${currentDateFilter}</span></div></div><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${budgetItems}${addCard}</div></div>`;
+            return `<div class="animate-fade-in-up max-w-6xl mx-auto"><div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4"><div><h2 class="text-2xl font-bold text-gray-900 hidden md:block">Planejamento</h2><p class="text-gray-500 text-sm hidden md:block">Defina limites.</p></div><div class="bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200 hidden md:block"><span class="text-xs text-gray-400 uppercase tracking-wider">Mês:</span><span class="font-bold text-sp-primary ml-1">${currentDateFilter}</span></div></div><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${budgetItems}${addCard}</div></div>`;
         }
 
         function renderTransactionForm() {
@@ -369,7 +413,7 @@
                 if (type === 'saida') cls = t === 'up' ? 'trend-down' : 'trend-up';
                 trend = `<span class="${cls} flex items-center gap-1"><i class="fa-solid ${t === 'up' ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down'}"></i> ${v}%</span> <span class="text-xs text-gray-400 ml-1">vs mês ant.</span>`;
             } else { trend = `<span class="text-xs text-gray-400">Saldo acumulado</span>`; }
-            return `<div class="card-clean p-5 flex flex-col justify-between h-32 relative overflow-hidden"><div class="flex justify-between items-start"><div><p class="text-xs font-bold text-gray-400 uppercase mb-1">${title}</p><p class="text-2xl font-bold text-gray-800">${formatCurrency(value)}</p></div><div class="w-10 h-10 rounded-full ${s.bg} flex items-center justify-center ${s.color}"><i class="fa-solid ${s.icon} text-lg"></i></div></div><div class="mt-auto pt-2 border-t border-gray-50 flex items-center">${trend}</div></div>`;
+            return `<div class="card-clean p-4 md:p-5 flex flex-col justify-between h-28 md:h-32 relative overflow-hidden"><div class="flex justify-between items-start"><div><p class="text-[10px] md:text-xs font-bold text-gray-400 uppercase mb-1">${title}</p><p class="text-lg md:text-2xl font-bold text-gray-800">${formatCurrency(value)}</p></div><div class="w-8 h-8 md:w-10 md:h-10 rounded-full ${s.bg} flex items-center justify-center ${s.color}"><i class="fa-solid ${s.icon} text-base md:text-lg"></i></div></div><div class="mt-auto pt-2 border-t border-gray-50 flex items-center">${trend}</div></div>`;
         }
 
         function renderTransactionList(transactionsArray) {
@@ -421,10 +465,6 @@
             const main = document.getElementById('app');
             if(!main) return;
             
-            // Render Sidebar & Navs once then update content
-            // To avoid full re-renders, we just update the main content area if structure exists
-            // BUT for simplicity in v30 we do full render (safe)
-            
             const content = (currentView === 'metas') ? renderBudgetsView() : renderDashboardContent(user);
             
             main.innerHTML = `
@@ -467,7 +507,7 @@
                     <input type="month" id="desktop-date" value="${currentDateFilter}" class="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium shadow-sm outline-none focus:border-sp-primary cursor-pointer">
                 </div>
 
-                <!-- KPIs Grid -->
+                <!-- KPIs Grid (Mobile Friendly) -->
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-6">
                     ${renderSummaryCard("Entradas", totalEntradas, 'entrada', prevEntradas)}
                     ${renderSummaryCard("Saídas", totalSaidas, 'saida', prevSaidas)}
@@ -525,7 +565,6 @@
                     currentView = 'dashboard';
                     renderMainContent(auth.currentUser);
                 }
-                // Delay to ensure render
                 setTimeout(() => {
                     const formContainer = document.getElementById('form-container');
                     if(formContainer) {
@@ -544,7 +583,6 @@
             });
             window.addEventListener('del-trans', async (e) => { if(confirm('Excluir?')) await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', e.detail)); });
             
-            // Window functions for inline HTML events
             window.addCat = quickAddCategory;
             window.cancelEdit = () => { editingTransactionId = null; renderMainContent(auth.currentUser); };
             window.exportToCSV = exportToCSV;
@@ -554,6 +592,7 @@
             renderMainContent(user);
         }
 
+        // TELA DE LOGIN CENTRALIZADA CORRIGIDA (Absoluta)
         function renderLogin() {
             document.getElementById('app').innerHTML = `
                 <div class="w-full h-full flex items-center justify-center bg-gray-100 absolute top-0 left-0 z-[100]">
