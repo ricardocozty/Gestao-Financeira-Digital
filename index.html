@@ -3,12 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gestão Financeira Flow Enterprise</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <title>Gestão Flow Enterprise</title>
     
     <script>
-        tailwind.config = {
+        window.tailwindConfig = {
             theme: {
                 extend: {
                     colors: {
@@ -29,13 +27,15 @@
             }
         }
     </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>tailwind.config = window.tailwindConfig;</script>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
     <style>
         body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; background-color: #F8FAFC; }
-        
-        /* Correção crítica para altura no mobile (safari/chrome) */
         .h-dynamic-screen { height: 100vh; height: 100dvh; }
-        
         ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
@@ -49,6 +49,7 @@
         .bottom-nav {
             background: rgba(255, 255, 255, 0.98);
             backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             border-top: 1px solid #F1F5F9;
             padding-bottom: env(safe-area-inset-bottom);
         }
@@ -72,11 +73,10 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
-        import { getAuth, onAuthStateChanged, signInWithCustomToken, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, query, onSnapshot, addDoc, setDoc, deleteDoc, doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, query, onSnapshot, addDoc, setDoc, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- 1. CONFIGURAÇÃO (Gestão Seguuir Play - Homologação) ---
+        // --- 1. CONFIGURAÇÃO (Produção) ---
         const firebaseConfig = {
           apiKey: "AIzaSyCu3y_yz6CRit6wH9VG7Omp4bBPrplp1NE",
           authDomain: "gestao-seguuir-play.firebaseapp.com",
@@ -100,8 +100,6 @@
         let userId = null;
         let transactions = [];
         let budgets = {};
-        let unsubscribeTransactions = null;
-        let unsubscribeBudgets = null;
         let editingTransactionId = null;
         let currentView = 'dashboard';
         
@@ -116,14 +114,29 @@
 
         // --- 3. HELPERS ---
         function formatCurrency(val) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val); }
-        function filterByMonth(t) { if (!t.date) return false; const d = t.date.toDate ? t.date.toDate() : new Date(t.date); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` === currentDateFilter; }
-        function filterByCurrentDate(t) { if (!t.date) return false; const d = t.date.toDate ? t.date.toDate() : new Date(t.date); return d.getTime() <= Date.now(); }
+        
+        function filterByMonth(t) { 
+            if (!t.date) return false; 
+            const d = t.date.toDate ? t.date.toDate() : new Date(t.date); 
+            // Garante formato YYYY-MM consistente
+            const tStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+            return tStr === currentDateFilter; 
+        }
+        
+        function filterByCurrentDate(t) { 
+            if (!t.date) return false; 
+            const d = t.date.toDate ? t.date.toDate() : new Date(t.date); 
+            return d.getTime() <= Date.now(); 
+        }
+        
         function getPreviousMonth(c) { const [y, m] = c.split('-').map(Number); return `${new Date(y, m-2).getFullYear()}-${String(new Date(y, m-2).getMonth()+1).padStart(2,'0')}`; }
+        
         function calculateGrowth(curr, prev) {
             if (prev === 0) return curr > 0 ? {v:100, t:'up'} : {v:0, t:'neu'};
             const diff = ((curr - prev) / prev) * 100;
             return { v: Math.abs(diff).toFixed(0), t: diff > 0 ? 'up' : (diff < 0 ? 'down' : 'neu') };
         }
+        
         function calculateMonthlyPnl(transactionsArray) {
             const monthlyData = {};
             transactionsArray.forEach(t => {
@@ -140,6 +153,7 @@
                 return new Date(yB, mB - 1) - new Date(yA, mA - 1);
             }).reduce((obj, key) => { obj[key] = monthlyData[key]; return obj; }, {});
         }
+        
         function showToast(msg, color) {
             const t = document.getElementById('transaction-feedback');
             if(t) {
@@ -150,9 +164,8 @@
             }
         }
 
-        // --- 4. FUNÇÕES GLOBAIS (Window Binding) ---
-        // Definidas como function declaration para hoisting e atribuição clara
-
+        // --- 4. FUNÇÕES DE AÇÃO ---
+        
         function exportToCSV() {
             const monthTrans = transactions.filter(t => filterByMonth(t));
             if (monthTrans.length === 0) { showToast('Sem dados para exportar.', 'bg-gray-600'); return; }
@@ -185,8 +198,20 @@
 
         function signOutApp() { signOut(auth); }
         function cancelEdit() { editingTransactionId = null; renderMainContent(auth.currentUser); }
-        function setType(t) { const el = document.getElementById('type'); if(el) el.value = t; renderMainContent(auth.currentUser); }
-        function addCat() { const c = prompt('Nome da Nova Categoria:'); if(c && c.trim() !== "") { saveBudgetLimit(c.trim(), 0); } }
+        
+        function setType(t) { 
+            const el = document.getElementById('type'); 
+            if(el) el.value = t; 
+            // Renderiza apenas o formulário para não perder foco se possível, mas aqui daremos refresh no content
+            renderMainContent(auth.currentUser);
+            // Após renderizar, foca no input de valor
+            setTimeout(() => document.getElementById('amt')?.focus(), 50);
+        }
+        
+        function addCat() { 
+            const c = prompt('Nome da Nova Categoria:'); 
+            if(c && c.trim() !== "") { saveBudgetLimit(c.trim(), 0); } 
+        }
         
         function deleteCatBtn() {
             const catSelect = document.getElementById('cat');
@@ -209,13 +234,21 @@
         }
 
         async function delTrans(id) {
-             if(confirm('Excluir?')) await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', id));
+             if(confirm('Excluir este lançamento?')) {
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', id));
+                    showToast('Excluído!', 'bg-slate-700');
+                } catch (e) {
+                    console.error(e);
+                    showToast('Erro ao excluir', 'bg-red-500');
+                }
+             }
         }
 
         async function handleTransactionSubmit(e) {
             e.preventDefault();
             const btn = document.querySelector('button[type="submit"]');
-            if(btn) { btn.disabled = true; btn.innerText = "..."; }
+            if(btn) { btn.disabled = true; btn.innerText = "Processando..."; }
             try {
                 const descInput = document.getElementById('desc').value;
                 const data = {
@@ -224,9 +257,12 @@
                     type: document.getElementById('type').value,
                     category: document.getElementById('cat').value,
                     userId,
+                    // Salva com meio-dia para evitar problemas de timezone em visualização simples
                     date: new Date(document.getElementById('date').value + 'T12:00:00')
                 };
+                
                 const isRecurring = !editingTransactionId && document.getElementById('recurrence-check')?.checked;
+                
                 if (isRecurring) {
                     const count = parseInt(document.getElementById('recurrence-count').value) || 2;
                     const batch = [];
@@ -249,19 +285,20 @@
                     }
                 }
                 editingTransactionId = null;
+                // Limpar formulário sem recarregar tudo se possível, mas renderMainContent garante estado consistente
                 if(currentView === 'dashboard') renderMainContent(auth.currentUser);
-            } catch(err) { console.error(err); showToast('Erro (Verifique permissões)', 'bg-rose-500'); }
+            } catch(err) { console.error(err); showToast('Erro ao salvar', 'bg-rose-500'); }
         }
 
         async function saveBudgetLimit(cat, limit) {
-             try { await setDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', cat), { limit: parseFloat(limit), category: cat }); showToast('Categoria salva', 'bg-indigo-500'); } catch(e) { console.error(e); showToast('Erro Permissão', 'bg-red-500'); }
+             try { await setDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', cat), { limit: parseFloat(limit), category: cat }); showToast('Categoria salva', 'bg-indigo-500'); } catch(e) { console.error(e); }
         }
         async function deleteBudget(cat) {
-             if(confirm(`Excluir a categoria "${cat}"?`)) { try { await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', cat)); } catch(e) { console.error(e); showToast('Erro Permissão', 'bg-red-500'); } } 
+             if(confirm(`Excluir a categoria "${cat}"?`)) { await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', cat)); } 
         }
 
-        // --- 5. RENDERERS (Visual) ---
-
+        // --- 5. RENDERERS ---
+        
         function renderMonthlyReportRows(pnl) {
             let rows = Object.entries(pnl).map(([p, d]) => {
                 const r = d.entradas - d.saidas;
@@ -290,19 +327,32 @@
         }
 
         function renderTransactionList(arr) {
-            const filtered = arr.filter(t => filterByMonth(t)).sort((a,b) => (b.date?.toDate()||0) - (a.date?.toDate()||0));
-            if (!filtered.length) return `<div class="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200"><i class="fa-solid fa-wind text-4xl text-slate-300 mb-3"></i><p class="text-slate-400 font-medium">Nenhum lançamento este mês</p></div>`;
+            // 1. Filtrar por mês
+            let filtered = arr.filter(t => filterByMonth(t));
+            
+            // 2. Aplicar Busca (CORREÇÃO CRÍTICA)
+            if (currentFilters.search && currentFilters.search.trim() !== '') {
+                const term = currentFilters.search.toLowerCase();
+                filtered = filtered.filter(t => 
+                    (t.description && t.description.toLowerCase().includes(term)) ||
+                    (t.category && t.category.toLowerCase().includes(term))
+                );
+            }
+
+            // 3. Ordenar
+            filtered.sort((a,b) => (b.date?.toDate()||0) - (a.date?.toDate()||0));
+
+            if (!filtered.length) return `<div class="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200"><i class="fa-solid fa-wind text-4xl text-slate-300 mb-3"></i><p class="text-slate-400 font-medium">${currentFilters.search ? 'Nenhum resultado para a busca' : 'Nenhum lançamento este mês'}</p></div>`;
             
             const desktopTable = `<div class="hidden md:block card-clean overflow-hidden"><table class="w-full text-left"><thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold tracking-wider"><tr><th class="py-4 px-6">Descrição</th><th class="py-4 px-6">Categoria</th><th class="py-4 px-6">Data</th><th class="py-4 px-6 text-right">Valor</th><th class="py-4 px-6 text-right w-20"></th></tr></thead><tbody class="divide-y divide-slate-50">${filtered.map(t => { 
                 const isEntry = t.type === 'Entrada'; 
-                return `<tr class="hover:bg-slate-50 transition-colors group"><td class="py-4 px-6 font-medium text-slate-700">${t.description}</td><td class="py-4 px-6 text-sm text-slate-500"><span class="bg-slate-100 px-2 py-1 rounded text-xs">${t.category}</span></td><td class="py-4 px-6 text-sm text-slate-500">${t.date?.toDate().toLocaleDateString('pt-BR')}</td><td class="py-4 px-6 text-right font-bold ${isEntry?'text-emerald-600':'text-rose-500'}">${isEntry?'+':'-'} ${formatCurrency(t.amount)}</td><td class="py-4 px-6 text-right opacity-0 group-hover:opacity-100 transition-opacity"><button onclick="window.delTrans('${t.id}')" class="text-slate-400 hover:text-red-500"><i class="fa-solid fa-trash"></i></button></td></tr>`; 
+                return `<tr class="hover:bg-slate-50 transition-colors group"><td class="py-4 px-6 font-medium text-slate-700">${t.description}</td><td class="py-4 px-6 text-sm text-slate-500"><span class="bg-slate-100 px-2 py-1 rounded text-xs">${t.category}</span></td><td class="py-4 px-6 text-sm text-slate-500">${t.date?.toDate().toLocaleDateString('pt-BR')}</td><td class="py-4 px-6 text-right font-bold ${isEntry?'text-emerald-600':'text-rose-500'}">${isEntry?'+':'-'} ${formatCurrency(t.amount)}</td><td class="py-4 px-6 text-right opacity-0 group-hover:opacity-100 transition-opacity"><div class="flex gap-2 justify-end"><button onclick="window.editTrans('${t.id}')" class="text-slate-400 hover:text-blue-500"><i class="fa-solid fa-pen"></i></button><button onclick="window.delTrans('${t.id}')" class="text-slate-400 hover:text-red-500"><i class="fa-solid fa-trash"></i></button></div></td></tr>`; 
             }).join('')}</tbody></table></div>`;
             
             const mobileList = `<div class="md:hidden space-y-3 pb-24">${filtered.map(t => { 
                 const isEntry = t.type === 'Entrada'; 
                 return `<div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between active:scale-[0.99] transition-transform cursor-pointer" onclick="window.editTrans('${t.id}')"><div class="flex items-center gap-3.5 overflow-hidden"><div class="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center ${isEntry ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-500'}"><i class="fa-solid ${isEntry ? 'fa-arrow-up' : 'fa-arrow-down'}"></i></div><div class="min-w-0"><p class="font-bold text-slate-800 text-sm truncate leading-tight mb-0.5">${t.description}</p><p class="text-xs text-slate-400 truncate">${t.category} • ${t.date?.toDate().toLocaleDateString('pt-BR').slice(0,5)}</p></div></div><div class="text-right pl-2 flex-shrink-0"><p class="font-bold text-base ${isEntry ? 'text-emerald-600' : 'text-rose-600'}">${isEntry?'+':'-'}${formatCurrency(t.amount)}</p></div></div>`; 
             }).join('')}</div>`;
-            
             return desktopTable + mobileList;
         }
 
@@ -320,15 +370,23 @@
         function renderForm() {
             const isEdit = editingTransactionId !== null;
             const curr = isEdit ? transactions.find(t => t.id === editingTransactionId) || {} : {};
-            const type = curr.type || 'Entrada';
-            const cats = [...new Set([...(defaultCategories[type] || []), ...Object.keys(budgets)])];
+            const type = curr.type || document.getElementById('type')?.value || 'Entrada';
+            
+            // CORREÇÃO CRÍTICA: Garantir que a categoria atual apareça mesmo se não estiver nas metas/padrões
+            const budgetCats = Object.keys(budgets);
+            const defCats = defaultCategories[type] || [];
+            let cats = [...new Set([...defCats, ...budgetCats])];
+            if (isEdit && curr.category && !cats.includes(curr.category)) {
+                cats.push(curr.category);
+            }
+
             let dateVal = new Date().toISOString().substring(0, 10);
             if(isEdit && curr.date) dateVal = curr.date.toDate().toISOString().substring(0, 10);
 
             return `
                 <div class="flex justify-between items-center mb-6">
                     <h3 class="font-bold text-lg text-slate-800">${isEdit ? 'Editar' : 'Novo'} Lançamento</h3>
-                    ${isEdit ? `<button onclick="window.cancelEdit()" class="text-xs text-slate-400 hover:text-slate-600">Cancelar</button>` : ''}
+                    ${isEdit ? `<button onclick="window.cancelEdit()" class="text-xs text-slate-400 hover:text-slate-600 bg-slate-100 px-3 py-1 rounded-full">Cancelar</button>` : ''}
                 </div>
                 <form id="trans-form" class="space-y-4">
                     <div class="bg-slate-50 p-2 rounded-xl flex gap-1">
@@ -357,7 +415,7 @@
         }
 
         function renderBudgetsView() {
-             const monthTrans = transactions.filter(t => filterByMonth(t, currentDateFilter));
+             const monthTrans = transactions.filter(t => filterByMonth(t));
              const activeCategories = Object.keys(budgets);
              if (activeCategories.length === 0) return `<div class="text-center py-20"><i class="fa-solid fa-bullseye text-6xl text-slate-200 mb-4"></i><h3 class="text-xl font-bold text-slate-700">Sem metas definidas</h3><p class="text-slate-500 mb-6">Crie metas para controlar seus gastos por categoria.</p><button onclick="window.addCat()" class="bg-sp-primary text-white px-6 py-3 rounded-xl font-bold shadow-lg">Criar Primeira Meta</button></div>`;
              
@@ -376,9 +434,17 @@
             const ent = monthTrans.filter(t => t.type === 'Entrada').reduce((s,t) => s+t.amount, 0);
             const sai = monthTrans.filter(t => t.type === 'Saída').reduce((s,t) => s+t.amount, 0);
             const prevM = getPreviousMonth(currentDateFilter);
-            const prevTrans = transactions.filter(t => filterByMonth(t, prevM));
-            const prevEnt = prevTrans.filter(t => t.type === 'Entrada').reduce((s,t) => s+t.amount, 0);
-            const prevSai = prevTrans.filter(t => t.type === 'Saída').reduce((s,t) => s+t.amount, 0);
+            const prevTrans = transactions.filter(t => filterByMonth(t)); // Bug na lógica original corrigido abaixo na chamada correta
+            // Na verdade, precisa filtrar pelo mes anterior
+            const prevTransCorrect = transactions.filter(t => {
+                if(!t.date) return false;
+                const d = t.date.toDate ? t.date.toDate() : new Date(t.date); 
+                const tStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+                return tStr === prevM;
+            });
+            
+            const prevEnt = prevTransCorrect.filter(t => t.type === 'Entrada').reduce((s,t) => s+t.amount, 0);
+            const prevSai = prevTransCorrect.filter(t => t.type === 'Saída').reduce((s,t) => s+t.amount, 0);
             const realBal = transactions.filter(filterByCurrentDate).reduce((s,t) => s + (t.type === 'Entrada' ? t.amount : -t.amount), 0);
 
             return `
@@ -398,11 +464,24 @@
         function renderMainContent(user) {
             const main = document.getElementById('main-content');
             if(!main) return;
+            // Verifica qual elemento estava focado para tentar restaurar (ux improvement básico)
+            const focusedId = document.activeElement?.id;
+            
             if (currentView === 'metas') {
                 main.innerHTML = renderBudgetsView();
             } else {
                 main.innerHTML = renderDashboardContent(user);
                 attachDashboardEvents();
+                
+                // Tenta restaurar foco para busca se foi ela que causou o render
+                if(focusedId === 'search-input') {
+                    const el = document.getElementById('search-input');
+                    if(el) {
+                        el.focus();
+                        // Coloca cursor no final
+                        const val = el.value; el.value = ''; el.value = val; 
+                    }
+                }
             }
         }
 
@@ -425,17 +504,20 @@
         function attachDashboardEvents() {
             const form = document.getElementById('trans-form');
             if(form) form.onsubmit = handleTransactionSubmit;
+            
             const deskDate = document.getElementById('desktop-date');
             if(deskDate) deskDate.onchange = (e) => { currentDateFilter = e.target.value; renderMainContent(auth.currentUser); };
+            
             const search = document.getElementById('search-input');
             if(search) {
-                search.focus();
+                // Se já não estiver focado (para evitar loop de focus no renderMainContent inicial)
                 search.oninput = (e) => { 
                     currentFilters.search = e.target.value; 
                     const list = document.getElementById('transaction-list-container');
                     if(list) list.innerHTML = renderTransactionList(transactions);
                 };
             }
+            
             const recCheck = document.getElementById('recurrence-check');
             if(recCheck) recCheck.onchange = (e) => document.getElementById('recurrence-options').classList.toggle('hidden', !e.target.checked);
         }
@@ -456,7 +538,6 @@
         window.signInWithPopup = signInWithPopup;
         window.GoogleAuthProvider = GoogleAuthProvider;
         window.auth = auth;
-        window.renderMainContent = renderMainContent; // Ensure this is exposed
 
         // --- INIT ---
         onAuthStateChanged(auth, (user) => {
