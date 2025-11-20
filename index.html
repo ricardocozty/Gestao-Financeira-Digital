@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gestão Flow Enterprise</title>
+    <title>Gestão Financeira Flow Enterprise</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -32,16 +32,23 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; background-color: #F8FAFC; }
+        
+        /* Correção de altura para Mobile (barra de endereço) */
+        .h-dynamic-screen { height: 100vh; height: 100dvh; }
+        
         ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
+        
         .card-clean {
             background: white; border-radius: 20px; 
             border: 1px solid #F1F5F9;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
             transition: transform 0.2s ease;
         }
+        
         .sidebar-gradient { background: linear-gradient(180deg, #1E1B4B 0%, #312E81 100%); }
+        
         .bottom-nav {
             background: rgba(255, 255, 255, 0.98);
             backdrop-filter: blur(12px);
@@ -50,16 +57,19 @@
         }
         .bottom-nav-item.active { color: #781F60; font-weight: 600; }
         .bottom-nav-item { color: #94A3B8; transition: all 0.3s; }
+
         .trend-tag { padding: 2px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.02em; }
         .trend-up { color: #059669; background: #D1FAE5; }
         .trend-down { color: #DC2626; background: #FEE2E2; }
         .trend-neutral { color: #475569; background: #F1F5F9; }
+        
         .loader { border: 3px solid #E2E8F0; border-radius: 50%; border-top: 3px solid #781F60; width: 32px; height: 32px; animation: spin 0.8s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
-<body class="h-screen w-full overflow-hidden flex flex-col md:flex-row text-slate-800">
+<body class="h-dynamic-screen w-full overflow-hidden flex flex-col md:flex-row text-slate-800">
 
+    <!-- Container Principal -->
     <div id="app" class="w-full h-full relative">
         <div class="w-full h-full flex items-center justify-center bg-slate-50 absolute z-50">
             <div class="loader"></div>
@@ -72,15 +82,15 @@
         import { getAuth, onAuthStateChanged, signInWithCustomToken, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, query, onSnapshot, addDoc, setDoc, deleteDoc, doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- CONFIGURAÇÃO (Produção) ---
+        // --- CONFIGURAÇÃO (Gestão Seguuir Play - Produção) ---
         const firebaseConfig = {
-            apiKey: "AIzaSyA-vzJzqPjSrU1oAUmR5Prjp34Mq4fktxM",
-            authDomain: "gestao-flow.firebaseapp.com",
-            projectId: "gestao-flow",
-            storageBucket: "gestao-flow.firebasestorage.app",
-            messagingSenderId: "999475382810",
-            appId: "1:999475382810:web:b0acb971baf7b222b35fa3",
-            measurementId: "G-ST8ZPZDDC1"
+          apiKey: "AIzaSyCu3y_yz6CRit6wH9VG7Omp4bBPrplp1NE",
+          authDomain: "gestao-seguuir-play.firebaseapp.com",
+          projectId: "gestao-seguuir-play",
+          storageBucket: "gestao-seguuir-play.firebasestorage.app",
+          messagingSenderId: "245381431458",
+          appId: "1:245381431458:web:cbf669ab9abc1f5ed797fb",
+          measurementId: "G-ZFV0YQ8M65"
         };
 
         let app, db, auth;
@@ -129,7 +139,7 @@
             }).reduce((obj, key) => { obj[key] = monthlyData[key]; return obj; }, {});
         }
 
-        // --- Global Actions ---
+        // --- EXPOSED GLOBAL ACTIONS (Window) ---
         
         window.exportToCSV = function() {
             const monthTrans = transactions.filter(t => filterByMonth(t));
@@ -180,7 +190,7 @@
             setTimeout(() => { document.getElementById('form-container')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 150);
         };
         
-        // --- Data Operations (CORREÇÃO: Função Reintegrada) ---
+        // --- Data Operations ---
         async function handleTransactionSubmit(e) {
             e.preventDefault();
             const btn = document.querySelector('button[type="submit"]');
@@ -196,14 +206,12 @@
                     date: new Date(document.getElementById('date').value + 'T12:00:00')
                 };
                 
-                // Recorrência
                 const isRecurring = !editingTransactionId && document.getElementById('recurrence-check')?.checked;
                 
                 if (isRecurring) {
                     const count = parseInt(document.getElementById('recurrence-count').value) || 2;
                     const batch = [];
                     const baseDate = new Date(data.date);
-                    
                     for(let i=0; i<count; i++) {
                         const d = new Date(baseDate);
                         d.setMonth(baseDate.getMonth() + i);
@@ -222,7 +230,7 @@
                     }
                 }
                 editingTransactionId = null;
-                if(currentView === 'dashboard') renderMainContent(auth.currentUser);
+                if(currentView === 'dashboard') window.renderMainContent(auth.currentUser);
             } catch(err) { console.error(err); showToast('Erro ao salvar', 'bg-rose-500'); }
         }
 
@@ -317,17 +325,27 @@
             const filtered = arr.filter(t => filterByMonth(t)).sort((a,b) => (b.date?.toDate()||0) - (a.date?.toDate()||0));
             if (!filtered.length) return `<div class="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200"><i class="fa-solid fa-wind text-4xl text-slate-300 mb-3"></i><p class="text-slate-400 font-medium">Nenhum lançamento este mês</p></div>`;
             
-            const desktopTable = `<div class="hidden md:block card-clean overflow-hidden"><table class="w-full text-left"><thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold tracking-wider"><tr><th class="py-4 px-6">Descrição</th><th class="py-4 px-6">Categoria</th><th class="py-4 px-6">Data</th><th class="py-4 px-6 text-right">Valor</th><th class="py-4 px-6 text-right w-20"></th></tr></thead><tbody class="divide-y divide-slate-50">${filtered.map(t => { 
+            // Lista Mobile/Tablet Otimizada
+            const list = filtered.map(t => { 
                 const isEntry = t.type === 'Entrada'; 
-                return `<tr class="hover:bg-slate-50 transition-colors group"><td class="py-4 px-6 font-medium text-slate-700">${t.description}</td><td class="py-4 px-6 text-sm text-slate-500"><span class="bg-slate-100 px-2 py-1 rounded text-xs">${t.category}</span></td><td class="py-4 px-6 text-sm text-slate-500">${t.date?.toDate().toLocaleDateString('pt-BR')}</td><td class="py-4 px-6 text-right font-bold ${isEntry?'text-emerald-600':'text-rose-500'}">${isEntry?'+':'-'} ${formatCurrency(t.amount)}</td><td class="py-4 px-6 text-right opacity-0 group-hover:opacity-100 transition-opacity"><button onclick="window.dispatchEvent(new CustomEvent('del', {detail:'${t.id}'}))" class="text-slate-400 hover:text-red-500"><i class="fa-solid fa-trash"></i></button></td></tr>`; 
-            }).join('')}</tbody></table></div>`;
+                return `
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between active:scale-[0.99] transition-transform cursor-pointer" onclick="window.dispatchEvent(new CustomEvent('edit', {detail:'${t.id}'}))">
+                    <div class="flex items-center gap-3.5 overflow-hidden">
+                        <div class="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center ${isEntry ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-500'}">
+                            <i class="fa-solid ${isEntry ? 'fa-arrow-up' : 'fa-arrow-down'}"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <p class="font-bold text-slate-800 text-sm truncate leading-tight mb-0.5">${t.description}</p>
+                            <p class="text-xs text-slate-400 truncate">${t.category} • ${t.date?.toDate().toLocaleDateString('pt-BR').slice(0,5)}</p>
+                        </div>
+                    </div>
+                    <div class="text-right pl-2 flex-shrink-0">
+                        <p class="font-bold text-base ${isEntry ? 'text-emerald-600' : 'text-rose-600'}">${isEntry?'+':'-'}${formatCurrency(t.amount)}</p>
+                    </div>
+                </div>`; 
+            }).join('');
             
-            const mobileList = `<div class="md:hidden space-y-3 pb-24">${filtered.map(t => { 
-                const isEntry = t.type === 'Entrada'; 
-                return `<div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between active:scale-[0.99] transition-transform" onclick="window.dispatchEvent(new CustomEvent('edit', {detail:'${t.id}'}))"><div class="flex items-center gap-3.5 overflow-hidden"><div class="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center ${isEntry ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-500'}"><i class="fa-solid ${isEntry ? 'fa-arrow-up' : 'fa-arrow-down'}"></i></div><div class="min-w-0"><p class="font-bold text-slate-800 text-sm truncate leading-tight mb-0.5">${t.description}</p><p class="text-xs text-slate-400 truncate">${t.category} • ${t.date?.toDate().toLocaleDateString('pt-BR').slice(0,5)}</p></div></div><div class="text-right pl-2 flex-shrink-0"><p class="font-bold text-base ${isEntry ? 'text-emerald-600' : 'text-rose-600'}">${isEntry?'+':'-'}${formatCurrency(t.amount)}</p></div></div>`; 
-            }).join('')}</div>`;
-            
-            return desktopTable + mobileList;
+            return `<div class="space-y-3 pb-24">${list}</div>`;
         }
 
         function renderBudgetsView() {
@@ -345,17 +363,7 @@
              return `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-24">${items}</div><button onclick="window.addCat()" class="fixed bottom-24 right-6 md:bottom-10 md:right-28 bg-white text-sp-primary w-12 h-12 rounded-full shadow-lg flex items-center justify-center border border-slate-100 hover:scale-110 transition"><i class="fa-solid fa-plus"></i></button>`;
         }
 
-        function renderMonthlyReport(transactionsArray) {
-            const pnl = calculateMonthlyPnl(transactionsArray);
-            let rows = Object.entries(pnl).map(([p, d]) => {
-                const r = d.entradas - d.saidas;
-                const cls = r >= 0 ? 'text-green-600' : 'text-red-500';
-                return `<tr class="border-b border-slate-50 hover:bg-slate-50 transition"><td class="py-3 px-4 text-sm font-medium text-slate-700">${p}</td><td class="py-3 px-4 text-sm text-green-600 text-right">+${formatCurrency(d.entradas)}</td><td class="py-3 px-4 text-sm text-red-500 text-right">-${formatCurrency(d.saidas)}</td><td class="py-3 px-4 text-sm font-bold ${cls} text-right">${formatCurrency(r)}</td></tr>`;
-            }).join('');
-            return `<div class="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden"><div class="p-4 border-b border-slate-100 bg-slate-50/50"><h3 class="font-bold text-xs text-slate-500 uppercase tracking-wider">Histórico Mensal</h3></div><div class="overflow-x-auto"><table class="w-full text-left"><tbody>${rows || '<tr><td class="p-6 text-center text-slate-400 text-sm">Sem histórico.</td></tr>'}</tbody></table></div></div>`;
-        }
-
-        // --- Core App Renderers (Exposed to Window) ---
+        // --- Core Renderers (Window Exposed) ---
         window.renderMainContent = function(user) {
             const main = document.getElementById('main-content');
             if(!main) return;
@@ -382,7 +390,11 @@
                 <div class="hidden md:flex justify-between items-end mb-10"><div><h2 class="text-3xl font-bold text-slate-900 tracking-tight">Visão Geral</h2><p class="text-slate-500 mt-1">Resumo financeiro de <span class="font-semibold text-sp-primary">${currentDateFilter}</span></p></div><div class="flex items-center bg-white p-1 rounded-xl border border-slate-200 shadow-sm"><input type="month" id="desktop-date" value="${currentDateFilter}" class="bg-transparent border-none text-slate-700 text-sm font-bold px-3 py-1.5 cursor-pointer outline-none"></div></div>
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-8">${renderSummaryCard("Entradas", ent, 'entrada', prevEnt)}${renderSummaryCard("Saídas", sai, 'saida', prevSai)}${renderSummaryCard("Lucro", ent - sai, 'lucro', prevEnt - prevSai)}${renderSummaryCard("Em Caixa", realBal, 'saldo', null)}</div>
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    <div class="lg:col-span-2 space-y-6"><div class="flex items-center justify-between"><h3 class="font-bold text-lg text-slate-800">Movimentações</h3><button onclick="window.exportToCSV()" class="text-xs font-bold text-sp-primary md:hidden">CSV</button></div><div class="relative mb-4"><i class="fa-solid fa-search absolute left-3 top-3 text-gray-400 text-sm"></i><input id="search-input" type="text" placeholder="Buscar..." class="w-full bg-white pl-9 pr-4 py-2.5 rounded-xl border-none shadow-sm text-sm focus:ring-2 focus:ring-sp-primary outline-none" value="${currentFilters.search}"></div>${renderTransactionList(transactions)}</div>
+                    <div class="lg:col-span-2 space-y-6">
+                        <div class="flex items-center justify-between"><h3 class="font-bold text-lg text-slate-800">Movimentações</h3><button onclick="window.exportToCSV()" class="text-xs font-bold text-sp-primary md:hidden">CSV</button></div>
+                        <div class="relative mb-4"><i class="fa-solid fa-search absolute left-3 top-3 text-gray-400 text-sm"></i><input id="search-input" type="text" placeholder="Buscar..." class="w-full bg-white pl-9 pr-4 py-2.5 rounded-xl border-none shadow-sm text-sm focus:ring-2 focus:ring-sp-primary outline-none" value="${currentFilters.search}"></div>
+                        <div id="transaction-list-container">${renderTransactionList(transactions)}</div>
+                    </div>
                     <div class="lg:col-span-1"><div id="form-container" class="bg-white p-6 rounded-2xl shadow-soft border border-slate-100 md:sticky md:top-8">${renderForm()}</div><div class="mt-6">${renderMonthlyReport(transactions)}</div></div>
                 </div>
             `;
@@ -404,13 +416,22 @@
         function attachEvents() {
             const form = document.getElementById('trans-form');
             if(form) form.onsubmit = handleTransactionSubmit;
-            ['mobile-date', 'desktop-date'].forEach(id => { const el = document.getElementById(id); if(el) el.onchange = (e) => { currentDateFilter = e.target.value; window.renderMainContent(auth.currentUser); }; });
+            
+            ['mobile-date', 'desktop-date'].forEach(id => {
+                const el = document.getElementById(id);
+                if(el) el.onchange = (e) => { currentDateFilter = e.target.value; window.renderMainContent(auth.currentUser); };
+            });
             
             const search = document.getElementById('search-input');
             if(search) { 
                 search.focus(); 
                 const val = search.value; search.value = ''; search.value = val; 
-                search.oninput = (e) => { currentFilters.search = e.target.value; window.renderMainContent(auth.currentUser); }; 
+                search.oninput = (e) => { 
+                    currentFilters.search = e.target.value; 
+                    // Optimistic update only for list
+                    const list = document.getElementById('transaction-list-container');
+                    if(list) list.innerHTML = renderTransactionList(transactions);
+                }; 
             }
             
             const recCheck = document.getElementById('recurrence-check');
@@ -440,7 +461,16 @@
                 onSnapshot(qB, (s) => { budgets = {}; s.docs.forEach(d => budgets[d.id] = d.data()); window.renderMainContent(user); });
                 renderApp(user);
             } else {
-                document.getElementById('app').innerHTML = `<div class="w-full h-full flex flex-col items-center justify-center bg-slate-50 p-6 absolute top-0 left-0 z-[100]"><div class="w-16 h-16 bg-sp-primary rounded-2xl flex items-center justify-center text-white text-3xl shadow-xl mb-6"><i class="fa-solid fa-chart-simple"></i></div><h1 class="text-2xl font-bold text-slate-800 mb-2">Flow Enterprise</h1><p class="text-slate-400 mb-8 text-center">Gestão financeira inteligente.</p><button onclick="signInWithPopup(auth, new GoogleAuthProvider())" class="bg-white text-slate-700 font-bold py-3.5 px-8 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex items-center gap-3"><i class="fa-brands fa-google text-red-500"></i> Entrar com Google</button></div>`;
+                document.getElementById('app').innerHTML = `
+                    <div class="w-full h-full flex items-center justify-center bg-slate-50 absolute top-0 left-0 z-[100]">
+                        <div class="bg-white p-10 rounded-2xl shadow-xl text-center max-w-sm w-full">
+                            <div class="w-16 h-16 bg-sp-primary rounded-2xl flex items-center justify-center mx-auto mb-6 text-white text-3xl shadow-lg"><i class="fa-solid fa-chart-simple"></i></div>
+                            <h1 class="text-2xl font-bold text-slate-800 mb-2">Flow Enterprise</h1>
+                            <p class="text-slate-400 mb-8 text-center">Gestão financeira inteligente.</p>
+                            <button onclick="signInWithPopup(auth, new GoogleAuthProvider())" class="w-full bg-white text-slate-700 font-bold py-3.5 px-8 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3"><i class="fa-brands fa-google text-red-500"></i> Entrar com Google</button>
+                        </div>
+                    </div>
+                `;
             }
         });
     </script>
