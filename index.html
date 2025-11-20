@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestão Flow</title>
+    <title>Gestão Financeira Flow Enterprise</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -61,7 +61,7 @@
         import { getAuth, onAuthStateChanged, signInWithCustomToken, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, query, onSnapshot, addDoc, setDoc, deleteDoc, doc, updateDoc, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- CONFIGURAÇÃO FIREBASE (gestao-flow) ---
+        // --- CONFIGURAÇÃO FIREBASE (gestao-flow - MODO PRODUÇÃO) ---
         const firebaseConfig = {
             apiKey: "AIzaSyA-vzJzqPjSrU1oAUmR5Prjp34Mq4fktxM",
             authDomain: "gestao-flow.firebaseapp.com",
@@ -81,7 +81,7 @@
         let unsubscribeBudgets = null;
         let editingTransactionId = null;
         let currentView = 'dashboard';
-        let isDemoMode = false;
+        // A variável isDemoMode não existe mais, pois estamos em Produção
 
         const today = new Date();
         let currentDateFilter = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
@@ -94,7 +94,7 @@
         
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-        // --- Inicialização do Sistema ---
+        // --- Inicialização do Sistema (Estrita de Produção) ---
         function initSystem() {
             try {
                 app = initializeApp(firebaseConfig);
@@ -104,7 +104,6 @@
                 onAuthStateChanged(auth, (user) => {
                     if (user) {
                         userId = user.uid;
-                        isDemoMode = false;
                         setupRealtimeListeners();
                         renderApp(user);
                     } else {
@@ -112,59 +111,22 @@
                         renderLogin();
                     }
                 }, (error) => {
-                    console.error("Erro de Autenticação Firebase (Provável bloqueio de domínio):", error);
-                    renderLogin(); // Permite fallback para demo
+                    // Em produção, falha de autenticação leva à tela de login
+                    console.error("Erro de Autenticação Firebase:", error);
+                    renderLogin(); 
                 });
 
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     signInWithCustomToken(auth, __initial_auth_token).catch(() => renderLogin());
+                } else {
+                    renderLogin();
                 }
+
             } catch (e) {
-                console.error("Falha crítica no Firebase:", e);
-                renderLogin();
+                console.error("Falha crítica na inicialização do Firebase:", e);
+                // Se a inicialização falhar (chaves incorretas), o sistema mostra um erro.
+                document.getElementById('app').innerHTML = '<div class="w-full h-full flex items-center justify-center bg-red-50"><p class="text-lg font-semibold text-red-700">Erro Crítico de Configuração.</p></div>';
             }
-        }
-
-        // --- MODO LOCAL (DEMO + LOCALSTORAGE) ---
-        function loadLocalData() {
-            const storedTrans = localStorage.getItem('flow_transactions_v2'); // Chave nova para evitar conflito
-            const storedBudgets = localStorage.getItem('flow_budgets_v2');
-            
-            if (storedTrans) {
-                transactions = JSON.parse(storedTrans).map(t => ({
-                    ...t,
-                    date: Timestamp.fromDate(new Date(t.date))
-                }));
-            } else {
-                // Dados iniciais limpos
-                transactions = [];
-                saveLocalData();
-            }
-
-            if (storedBudgets) {
-                budgets = JSON.parse(storedBudgets);
-            } else {
-                budgets = {};
-                saveLocalData();
-            }
-        }
-
-        function saveLocalData() {
-            if (!isDemoMode) return;
-            const transToSave = transactions.map(t => ({
-                ...t,
-                date: t.date.toDate().toISOString()
-            }));
-            localStorage.setItem('flow_transactions_v2', JSON.stringify(transToSave));
-            localStorage.setItem('flow_budgets_v2', JSON.stringify(budgets));
-        }
-
-        function activateDemoMode() {
-            isDemoMode = true;
-            userId = 'local-user';
-            loadLocalData();
-            renderApp({ displayName: 'Usuário Local', email: 'offline@mode' });
-            showToast('Modo Local Ativo (Banco desconectado)', 'bg-blue-600');
         }
 
         // --- Helpers ---
@@ -235,15 +197,8 @@
             showToast('Relatório baixado!', 'bg-blue-600');
         }
 
-        // --- Operações de Dados (Unified) ---
+        // --- Operações de Dados (Firestore) ---
         async function saveBudgetLimit(category, limit) {
-            if(isDemoMode) {
-                budgets[category] = { limit: parseFloat(limit), category };
-                saveLocalData();
-                showToast('Meta salva (Local)', 'bg-blue-600');
-                renderMainContent({ displayName: 'Usuário Local' });
-                return;
-            }
             try {
                 await setDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', category), {
                     limit: parseFloat(limit),
@@ -256,13 +211,6 @@
 
         async function deleteBudget(category) {
             if(!confirm(`Excluir a meta de "${category}"?`)) return;
-            if(isDemoMode) {
-                delete budgets[category];
-                saveLocalData();
-                showToast('Meta removida (Local)', 'bg-blue-600');
-                renderMainContent({ displayName: 'Usuário Local' });
-                return;
-            }
             try {
                 await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', category));
                 showToast('Meta removida.', 'bg-gray-600');
@@ -289,59 +237,29 @@
                 const isRecurring = !editingTransactionId && document.getElementById('recurrence-check')?.checked;
                 const count = isRecurring ? parseInt(document.getElementById('recurrence-count').value) : 1;
 
-                if (isDemoMode) {
-                    for(let i=0; i<count; i++) {
-                        const d = new Date(dateObj); d.setMonth(d.getMonth()+i);
-                        const newTrans = { 
-                            ...data, 
-                            id: Math.random().toString(36).substr(2,9), 
-                            date: Timestamp.fromDate(d),
-                            description: i>0 ? `${data.description} (${i+1}/${count})` : data.description 
-                        };
-                        
-                        if (editingTransactionId && i===0) {
-                             const idx = transactions.findIndex(t => t.id === editingTransactionId);
-                             if(idx !== -1) transactions[idx] = newTrans;
-                             editingTransactionId = null;
-                        } else {
-                            transactions.push(newTrans);
-                        }
-                    }
-                    saveLocalData();
-                    showToast(isRecurring ? `${count} lançamentos (Local)` : 'Salvo (Local)', 'bg-blue-600');
-                    document.getElementById('transaction-form').reset();
-                    renderMainContent({ displayName: 'Usuário Local' });
-                } else {
-                    // Firebase Logic
-                    const batch = [];
-                    for(let i=0; i<count; i++) {
-                         const d = new Date(dateObj); d.setMonth(d.getMonth()+i);
-                         const desc = i>0 ? `${data.description} (${i+1}/${count})` : data.description;
-                         if (editingTransactionId && i===0) {
-                            await updateDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', editingTransactionId), { ...data, date: dateObj });
-                         } else {
-                            batch.push(addDoc(collection(db, 'artifacts', appId, 'users', userId, 'transactions'), { ...data, date: d, description: desc }));
-                         }
-                    }
-                    if(batch.length > 0) await Promise.all(batch);
-                    
-                    showToast(editingTransactionId ? 'Atualizado!' : 'Salvo!', 'bg-sp-success');
-                    editingTransactionId = null;
-                    document.getElementById('transaction-form').reset();
+                // Firebase Logic (Produção)
+                const batch = [];
+                for(let i=0; i<count; i++) {
+                     const d = new Date(dateObj); d.setMonth(d.getMonth()+i);
+                     const desc = i>0 ? `${data.description} (${i+1}/${count})` : data.description;
+                     if (editingTransactionId && i===0) {
+                        await updateDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', editingTransactionId), { ...data, date: dateObj });
+                     } else {
+                        batch.push(addDoc(collection(db, 'artifacts', appId, 'users', userId, 'transactions'), { ...data, date: d, description: desc }));
+                     }
                 }
-            } catch(err) { console.error(err); showToast('Erro.', 'bg-red-500'); }
+                if(batch.length > 0) await Promise.all(batch);
+                
+                showToast(editingTransactionId ? 'Atualizado!' : 'Salvo!', 'bg-sp-success');
+                editingTransactionId = null;
+                document.getElementById('transaction-form').reset();
+
+            } catch(err) { console.error(err); showToast('Erro ao salvar no Firebase.', 'bg-red-500'); }
             finally { btn.disabled = false; }
         }
 
         async function handleDelete(id) {
             if(!confirm('Apagar?')) return;
-            if(isDemoMode) {
-                transactions = transactions.filter(t => t.id !== id);
-                saveLocalData();
-                showToast('Excluído (Local)', 'bg-blue-600');
-                renderMainContent({ displayName: 'Usuário Local' });
-                return;
-            }
             await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', id));
         }
 
@@ -378,7 +296,7 @@
                         </div>
                         <div class="overflow-hidden">
                             <p class="text-sm font-medium text-white truncate">${user.displayName || 'Usuário'}</p>
-                            <p class="text-xs text-gray-400 truncate">${isDemoMode ? 'Local Mode' : 'Online'}</p>
+                            <p class="text-xs text-gray-400 truncate">Online</p>
                         </div>
                     </div>
                 </aside>
@@ -477,6 +395,17 @@
             return `<div class="grid grid-cols-2 gap-4 items-center h-full"><div class="relative w-32 h-32 mx-auto group"><svg viewBox="0 0 42 42" class="w-full h-full block transform group-hover:scale-105 transition-transform duration-500"><circle cx="21" cy="21" r="15.9155" fill="transparent" stroke="#f3f4f6" stroke-width="5"></circle>${paths.join('')}</svg><div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"><span class="text-[10px] text-gray-400 font-medium">Total</span><span class="text-xs font-bold text-gray-800">R$</span></div></div><div class="overflow-y-auto max-h-40 pr-1 custom-scrollbar">${legend}</div></div>`;
         }
 
+        function renderMonthlyReport(transactionsArray) {
+            const data = calculateMonthlyPnl(transactionsArray);
+            const rows = Object.entries(data).map(([month, pnl]) => {
+                const lucro = pnl.entradas - pnl.saidas;
+                const lucroClass = lucro >= 0 ? 'text-green-600' : 'text-red-500';
+                return `<tr class="border-b border-gray-50 table-row-hover transition-colors"><td class="py-3 px-6 font-semibold">${month}</td><td class="py-3 px-6 text-right text-blue-600">${formatCurrency(pnl.entradas)}</td><td class="py-3 px-6 text-right text-red-500">${formatCurrency(pnl.saidas)}</td><td class="py-3 px-6 text-right font-bold ${lucroClass}">${formatCurrency(lucro)}</td></tr>`;
+            }).join('');
+            
+            return `<div class="card-clean overflow-hidden"><div class="px-6 py-4 border-b border-gray-100 bg-white"><h3 class="font-bold text-gray-800 flex items-center gap-2 text-sm uppercase tracking-wide"><i class="fa-solid fa-chart-line text-sp-highlight"></i> DRE Mensal (Resultado do Exercício)</h3></div><div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead class="bg-gray-50 text-gray-500 text-[10px] uppercase font-semibold tracking-wider"><tr><th class="py-3 px-6">Mês/Ano</th><th class="py-3 px-6 text-right">Entradas</th><th class="py-3 px-6 text-right">Saídas</th><th class="py-3 px-6 text-right">Lucro Líquido</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+        }
+
         function renderMainContent(user) {
             const main = document.getElementById('main-content');
             if(!main) return;
@@ -496,7 +425,7 @@
 
                 main.innerHTML = `
                     <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-                        <div><h2 class="text-2xl font-bold text-gray-900">Visão Geral</h2><p class="text-gray-500 text-sm">Bem-vindo, ${user.displayName || 'Gestor'}. ${isDemoMode ? '<span class="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-xs">Modo Local</span>' : ''}</p></div>
+                        <div><h2 class="text-2xl font-bold text-gray-900">Visão Geral</h2><p class="text-gray-500 text-sm">Bem-vindo, ${user.displayName || 'Gestor'}.</p></div>
                         <div class="flex items-center bg-white p-1.5 rounded-lg border shadow-sm"><span class="px-2 text-sp-primary"><i class="fa-regular fa-calendar"></i></span><input type="month" id="month-year-filter" value="${currentDateFilter}" class="bg-transparent border-none text-gray-700 text-sm font-semibold focus:ring-0 py-0.5 cursor-pointer"></div>
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">${renderSummaryCard("Entradas", totalEntradas, 'entrada', prevEntradas)}${renderSummaryCard("Saídas", totalSaidas, 'saida', prevSaidas)}${renderSummaryCard("Lucro Líquido", lucro, 'lucro', prevLucro)}${renderSummaryCard("Caixa Disponível", saldoReal, 'saldo', null)}</div>
@@ -512,20 +441,20 @@
         }
         
         function attachGlobalEvents() {
-            document.getElementById('logout-btn-sidebar').onclick = () => isDemoMode ? window.location.reload() : signOut(auth);
+            document.getElementById('logout-btn-sidebar').onclick = () => signOut(auth);
             const expBtn = document.getElementById('sidebar-export-btn'); if(expBtn) expBtn.onclick = exportToCSV;
             const fab = document.getElementById('fab-button'); if(fab) fab.onclick = () => { window.dispatchEvent(new CustomEvent('nav-change', {detail: 'dashboard'})); setTimeout(() => document.getElementById('form-container')?.scrollIntoView({ behavior: 'smooth' }), 100); };
-            window.addEventListener('nav-change', (e) => { currentView = e.detail; renderApp(isDemoMode ? {displayName:'Usuário Local', email:'local'} : auth.currentUser); });
+            window.addEventListener('nav-change', (e) => { currentView = e.detail; renderApp(auth.currentUser); });
             window.addEventListener('save-budget', (e) => saveBudgetLimit(e.detail.cat, e.detail.val));
             window.addEventListener('delete-budget', (e) => deleteBudget(e.detail));
         }
 
         function attachDynamicEvents() {
             if (currentView === 'dashboard') {
-                document.getElementById('month-year-filter').onchange = (e) => { currentDateFilter = e.target.value; renderMainContent(isDemoMode ? {displayName:'Usuário Local'} : auth.currentUser); };
+                document.getElementById('month-year-filter').onchange = (e) => { currentDateFilter = e.target.value; renderMainContent(auth.currentUser); };
                 document.getElementById('transaction-form').onsubmit = handleTransactionSubmit;
                 const searchInput = document.getElementById('filter-search');
-                if(searchInput) { searchInput.value = currentFilters.search; searchInput.oninput = (e) => { currentFilters.search = e.target.value; renderMainContent(isDemoMode ? {displayName:'Usuário Local'} : auth.currentUser); document.getElementById('filter-search').focus(); }; }
+                if(searchInput) { searchInput.value = currentFilters.search; searchInput.oninput = (e) => { currentFilters.search = e.target.value; renderMainContent(auth.currentUser); document.getElementById('filter-search').focus(); }; }
                 const typeSel = document.getElementById('type');
                 if(typeSel) typeSel.onchange = (e) => { 
                     const btn = document.getElementById('form-submit-btn'); if(btn && !editingTransactionId) btn.innerText = `Adicionar ${e.target.value}`;
@@ -533,7 +462,7 @@
                 };
                 const listCont = document.getElementById('list-container');
                 if(listCont) listCont.onclick = (e) => { const btn = e.target.closest('button'); if (!btn) return; const id = btn.dataset.id; if (btn.dataset.action === 'delete') handleDelete(id); if (btn.dataset.action === 'edit') handleEdit(id); };
-                const cancelBtn = document.getElementById('cancel-edit-btn'); if (cancelBtn) cancelBtn.onclick = () => { editingTransactionId = null; renderMainContent(isDemoMode ? {displayName:'Usuário Local'} : auth.currentUser); };
+                const cancelBtn = document.getElementById('cancel-edit-btn'); if (cancelBtn) cancelBtn.onclick = () => { editingTransactionId = null; renderMainContent(auth.currentUser); };
             }
         }
 
@@ -549,13 +478,12 @@
         }
 
         function renderLogin() {
-            document.getElementById('app').innerHTML = `<div class="w-full h-full flex items-center justify-center bg-gray-100"><div class="bg-white p-10 rounded-2xl shadow-xl text-center max-w-sm w-full"><div class="w-16 h-16 bg-sp-primary rounded-xl flex items-center justify-center mx-auto mb-6 text-white text-3xl shadow-lg"><i class="fa-solid fa-arrow-trend-up"></i></div><h1 class="text-2xl font-bold text-gray-800 mb-2">Gestão Flow</h1><p class="text-gray-500 mb-8 text-sm">Login seguro.</p><button id="google-btn" class="w-full bg-white border hover:bg-gray-50 text-gray-700 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-3 transition-all shadow-sm"><i class="fa-brands fa-google text-red-500"></i> Entrar com Google</button><div class="mt-4 text-center border-t pt-4"><p class="text-xs text-gray-400 mb-2">Problemas com conexão?</p><button onclick="activateDemoMode()" class="text-xs font-bold text-sp-primary hover:underline">Entrar sem login (Modo Local)</button></div></div></div>`;
-            document.getElementById('google-btn').onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch(e => { console.error(e); activateDemoMode(); });
-            window.activateDemoMode = activateDemoMode; // Torna acessível globalmente
+            document.getElementById('app').innerHTML = `<div class="w-full h-full flex items-center justify-center bg-gray-100"><div class="bg-white p-10 rounded-2xl shadow-xl text-center max-w-sm w-full"><div class="w-16 h-16 bg-sp-primary rounded-xl flex items-center justify-center mx-auto mb-6 text-white text-3xl shadow-lg"><i class="fa-solid fa-arrow-trend-up"></i></div><h1 class="text-2xl font-bold text-gray-800 mb-2">Gestão Flow</h1><p class="text-gray-500 mb-8 text-sm">Login seguro.</p><button id="google-btn" class="w-full bg-white border hover:bg-gray-50 text-gray-700 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-3 transition-all shadow-sm"><i class="fa-brands fa-google text-red-500"></i> Entrar com Google</button></div></div>`;
+            document.getElementById('google-btn').onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch(e => { console.error("Login com Google falhou:", e); });
         }
         
         function handleEdit(id) {
-            editingTransactionId = id; renderMainContent(isDemoMode ? {displayName:'Usuário Local'} : auth.currentUser);
+            editingTransactionId = id; renderMainContent(auth.currentUser);
             if(window.innerWidth < 768) document.getElementById('form-container')?.scrollIntoView({behavior:'smooth'});
         }
 
