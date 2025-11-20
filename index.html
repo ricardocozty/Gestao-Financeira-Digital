@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gestão Financeira Flow</title>
+    <title>Gestão Flow Enterprise</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -17,12 +17,12 @@
                         'sp-danger': '#FF455B', 
                         'sp-highlight': '#FF6E04', 
                         'sp-success': '#10B981', 
-                        'sp-bg': '#F8FAFC', /* Fundo mais claro e moderno */
+                        'sp-bg': '#F8FAFC',
                         'sp-card': '#FFFFFF'
                     },
                     fontFamily: { sans: ['Inter', 'sans-serif'] },
                     boxShadow: {
-                        'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)', /* Sombra mais suave */
+                        'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
                         'float': '0 15px 30px -5px rgba(255, 110, 4, 0.4)',
                     }
                 }
@@ -32,50 +32,33 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; background-color: #F8FAFC; }
-        
-        /* Scrollbar Customizada */
         ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
-        
         .card-clean {
             background: white; border-radius: 20px; 
             border: 1px solid #F1F5F9;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
             transition: transform 0.2s ease;
         }
-        
-        .sidebar-gradient { background: linear-gradient(180deg, #1E1B4B 0%, #312E81 100%); } /* Gradiente mais profissional */
-        
+        .sidebar-gradient { background: linear-gradient(180deg, #1E1B4B 0%, #312E81 100%); }
         .bottom-nav {
             background: rgba(255, 255, 255, 0.98);
             backdrop-filter: blur(12px);
             border-top: 1px solid #F1F5F9;
-            padding-bottom: env(safe-area-inset-bottom); /* Suporte iPhone X+ */
+            padding-bottom: env(safe-area-inset-bottom);
         }
         .bottom-nav-item.active { color: #781F60; font-weight: 600; }
         .bottom-nav-item { color: #94A3B8; transition: all 0.3s; }
-
         .trend-tag { padding: 2px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.02em; }
         .trend-up { color: #059669; background: #D1FAE5; }
         .trend-down { color: #DC2626; background: #FEE2E2; }
         .trend-neutral { color: #475569; background: #F1F5F9; }
-        
         .loader { border: 3px solid #E2E8F0; border-radius: 50%; border-top: 3px solid #781F60; width: 32px; height: 32px; animation: spin 0.8s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-        /* Estilo Mobile para Lista de Transações */
-        .mobile-trans-card {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 16px;
-            background: white;
-            border-bottom: 1px solid #F1F5F9;
-        }
-        .mobile-trans-card:last-child { border-bottom: none; }
     </style>
 </head>
+<!-- Body limpo para garantir layout correto -->
 <body class="h-screen w-full overflow-hidden flex flex-col md:flex-row text-slate-800">
 
     <div id="app" class="w-full h-full relative">
@@ -88,9 +71,9 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
         import { getAuth, onAuthStateChanged, signInWithCustomToken, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, query, onSnapshot, addDoc, setDoc, deleteDoc, doc, updateDoc, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, query, onSnapshot, addDoc, setDoc, deleteDoc, doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- CONFIGURAÇÃO (Gestão Flow) ---
+        // --- CONFIGURAÇÃO (Gestão Flow - Produção) ---
         const firebaseConfig = {
             apiKey: "AIzaSyA-vzJzqPjSrU1oAUmR5Prjp34Mq4fktxM",
             authDomain: "gestao-flow.firebaseapp.com",
@@ -130,212 +113,79 @@
             const diff = ((curr - prev) / prev) * 100;
             return { v: Math.abs(diff).toFixed(0), t: diff > 0 ? 'up' : (diff < 0 ? 'down' : 'neu') };
         }
+        function calculateMonthlyPnl(transactionsArray) {
+            const monthlyData = {};
+            transactionsArray.forEach(t => {
+                if (!t.date) return;
+                const date = t.date.toDate ? t.date.toDate() : new Date(t.date);
+                const monthKey = `${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+                if (!monthlyData[monthKey]) monthlyData[monthKey] = { entradas: 0, saidas: 0 };
+                if (t.type === 'Entrada') monthlyData[monthKey].entradas += t.amount;
+                else if (t.type === 'Saída') monthlyData[monthKey].saidas += t.amount;
+            });
+            return Object.keys(monthlyData).sort((a, b) => {
+                const [mA, yA] = a.split('/');
+                const [mB, yB] = b.split('/');
+                return new Date(yB, mB - 1) - new Date(yA, mA - 1);
+            }).reduce((obj, key) => { obj[key] = monthlyData[key]; return obj; }, {});
+        }
 
-        // --- Renderers ---
+        // --- Data Operations ---
+        async function handleTransactionSubmit(e) {
+            e.preventDefault();
+            const btn = document.querySelector('button[type="submit"]');
+            if(btn) { btn.disabled = true; btn.innerText = "..."; }
+            try {
+                const data = {
+                    description: document.getElementById('desc').value || 'Sem descrição',
+                    amount: parseFloat(document.getElementById('amt').value),
+                    type: document.getElementById('type').value,
+                    category: document.getElementById('cat').value,
+                    userId,
+                    date: new Date(document.getElementById('date').value + 'T12:00:00')
+                };
+
+                if (editingTransactionId) {
+                    await updateDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', editingTransactionId), data);
+                    showToast('Atualizado!', 'bg-indigo-500');
+                } else {
+                    await addDoc(collection(db, 'artifacts', appId, 'users', userId, 'transactions'), data);
+                    showToast('Adicionado!', 'bg-emerald-500');
+                }
+                editingTransactionId = null;
+                if(currentView === 'dashboard') renderMainContent(auth.currentUser);
+            } catch(err) { console.error(err); showToast('Erro', 'bg-rose-500'); }
+        }
+
+        async function saveBudgetLimit(cat, limit) {
+             await setDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', cat), { limit: parseFloat(limit), category: cat });
+             showToast('Meta salva', 'bg-indigo-500');
+        }
+        async function deleteBudget(cat) {
+             if(confirm('Excluir meta?')) { await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', cat)); } 
+        }
+
+        // --- Componentes UI ---
+
         function renderSidebar(user) {
             return `
                 <aside class="hidden md:flex w-72 sidebar-gradient text-white flex-col shadow-xl z-20 h-full fixed left-0 top-0">
-                    <div class="p-8">
-                        <h1 class="text-2xl font-bold flex items-center gap-3 tracking-tight">
-                            <div class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20"><i class="fa-solid fa-chart-simple text-sp-highlight"></i></div>
-                            Flow<span class="font-light opacity-60">Enterprise</span>
-                        </h1>
-                    </div>
+                    <div class="p-8"><h1 class="text-2xl font-bold flex items-center gap-3 tracking-tight"><div class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20"><i class="fa-solid fa-chart-simple text-sp-highlight"></i></div>Flow<span class="font-light opacity-60">Enterprise</span></h1></div>
                     <nav class="flex-1 px-4 space-y-1">
-                        <div onclick="window.dispatchEvent(new CustomEvent('nav', {detail:'dashboard'}))" class="nav-item ${currentView==='dashboard'?'bg-white/10 text-white shadow-sm':'text-slate-300 hover:bg-white/5 hover:text-white'} flex items-center p-3.5 rounded-xl transition-all cursor-pointer mb-1">
-                            <i class="fa-solid fa-border-all mr-3 w-6 text-center text-lg"></i> <span class="font-medium">Visão Geral</span>
-                        </div>
-                        <div onclick="window.dispatchEvent(new CustomEvent('nav', {detail:'metas'}))" class="nav-item ${currentView==='metas'?'bg-white/10 text-white shadow-sm':'text-slate-300 hover:bg-white/5 hover:text-white'} flex items-center p-3.5 rounded-xl transition-all cursor-pointer">
-                            <i class="fa-solid fa-bullseye mr-3 w-6 text-center text-lg"></i> <span class="font-medium">Metas</span>
-                        </div>
-                        
+                        <div onclick="window.dispatchEvent(new CustomEvent('nav', {detail:'dashboard'}))" class="nav-item ${currentView==='dashboard'?'bg-white/10 text-white shadow-sm':'text-slate-300 hover:bg-white/5 hover:text-white'} flex items-center p-3.5 rounded-xl transition-all cursor-pointer mb-1"><i class="fa-solid fa-border-all mr-3 w-6 text-center text-lg"></i> <span class="font-medium">Visão Geral</span></div>
+                        <div onclick="window.dispatchEvent(new CustomEvent('nav', {detail:'metas'}))" class="nav-item ${currentView==='metas'?'bg-white/10 text-white shadow-sm':'text-slate-300 hover:bg-white/5 hover:text-white'} flex items-center p-3.5 rounded-xl transition-all cursor-pointer"><i class="fa-solid fa-bullseye mr-3 w-6 text-center text-lg"></i> <span class="font-medium">Metas</span></div>
                         <div class="mt-8 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Ferramentas</div>
-                        <button onclick="exportToCSV()" class="w-full flex items-center p-3.5 rounded-xl text-slate-300 hover:bg-white/5 hover:text-white transition-all">
-                            <i class="fa-solid fa-file-export mr-3 w-6 text-center"></i> Exportar Dados
-                        </button>
+                        <button onclick="window.exportToCSV()" class="w-full flex items-center p-3.5 rounded-xl text-slate-300 hover:bg-white/5 hover:text-white transition-all"><i class="fa-solid fa-file-export mr-3 w-6 text-center"></i> Exportar Dados</button>
                     </nav>
-                    <div class="p-6 border-t border-white/10 bg-black/10">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-full bg-sp-primary border-2 border-white/20 flex items-center justify-center font-bold text-sm shadow-lg">${user.displayName?user.displayName[0]:'U'}</div>
-                            <div class="flex-1 min-w-0">
-                                <p class="text-sm font-medium text-white truncate">${user.displayName||'Usuário'}</p>
-                                <p class="text-xs text-slate-400 truncate">Conectado</p>
-                            </div>
-                            <button onclick="signOut(auth)" class="text-slate-400 hover:text-white transition"><i class="fa-solid fa-right-from-bracket"></i></button>
-                        </div>
-                    </div>
-                </aside>
-            `;
+                    <div class="p-6 border-t border-white/10 bg-black/10"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-sp-primary border-2 border-white/20 flex items-center justify-center font-bold text-sm shadow-lg">${user.displayName?user.displayName[0]:'U'}</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">${user.displayName||'Usuário'}</p><p class="text-xs text-slate-400 truncate">Conectado</p></div><button onclick="window.signOut(auth)" class="text-slate-400 hover:text-white transition"><i class="fa-solid fa-right-from-bracket"></i></button></div></div>
+                </aside>`;
         }
-
         function renderMobileHeader(user) {
-            return `
-                <div class="md:hidden fixed top-0 left-0 right-0 h-16 bg-white z-40 flex items-center justify-between px-5 shadow-sm border-b border-slate-100">
-                    <div class="flex items-center gap-3">
-                        <div class="w-9 h-9 rounded-lg bg-sp-primary flex items-center justify-center text-white shadow-md"><i class="fa-solid fa-chart-simple"></i></div>
-                        <span class="font-bold text-slate-800 text-lg">Flow</span>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <div class="relative">
-                            <input type="month" id="mobile-date" value="${currentDateFilter}" class="w-8 h-8 opacity-0 absolute inset-0 z-10">
-                            <div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-sp-primary"><i class="fa-regular fa-calendar"></i></div>
-                        </div>
-                        <div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-600" onclick="signOut(auth)"><i class="fa-solid fa-right-from-bracket"></i></div>
-                    </div>
-                </div>
-            `;
+            return `<div class="md:hidden fixed top-0 left-0 right-0 h-16 bg-white z-40 flex items-center justify-between px-5 shadow-sm border-b border-slate-100"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-lg bg-sp-primary flex items-center justify-center text-white shadow-md"><i class="fa-solid fa-chart-simple"></i></div><span class="font-bold text-slate-800 text-lg">Flow</span></div><div class="flex items-center gap-3"><div class="relative"><input type="month" id="mobile-date" value="${currentDateFilter}" class="w-8 h-8 opacity-0 absolute inset-0 z-10"><div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-sp-primary"><i class="fa-regular fa-calendar"></i></div></div><div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-600" onclick="window.signOut(auth)"><i class="fa-solid fa-right-from-bracket"></i></div></div></div>`;
         }
-
         function renderBottomNav() {
-            return `
-                <div class="md:hidden fixed bottom-0 left-0 right-0 bottom-nav h-[72px] flex items-center justify-around z-[60] px-4 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
-                    <button onclick="window.dispatchEvent(new CustomEvent('nav', {detail:'dashboard'}))" class="bottom-nav-item flex flex-col items-center justify-center w-16 h-full ${currentView==='dashboard'?'active':''}">
-                        <i class="fa-solid fa-border-all text-xl mb-1"></i>
-                        <span class="text-[10px] font-medium">Início</span>
-                    </button>
-                    <div class="w-16"></div> <!-- Espaço para o FAB -->
-                    <button onclick="window.dispatchEvent(new CustomEvent('nav', {detail:'metas'}))" class="bottom-nav-item flex flex-col items-center justify-center w-16 h-full ${currentView==='metas'?'active':''}">
-                        <i class="fa-solid fa-bullseye text-xl mb-1"></i>
-                        <span class="text-[10px] font-medium">Metas</span>
-                    </button>
-                </div>
-                <!-- FAB Centralizado na Bottom Bar -->
-                <button id="fab-button" class="md:hidden fixed bottom-6 left-1/2 transform -translate-x-1/2 w-14 h-14 bg-gradient-to-tr from-sp-highlight to-orange-500 text-white rounded-full shadow-float flex items-center justify-center text-2xl z-[70] active:scale-90 transition-transform border-4 border-white">
-                    <i class="fa-solid fa-plus"></i>
-                </button>
-            `;
+            return `<div class="md:hidden fixed bottom-0 left-0 right-0 bottom-nav h-[72px] flex items-center justify-around z-[60] px-4 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]"><button onclick="window.dispatchEvent(new CustomEvent('nav', {detail:'dashboard'}))" class="bottom-nav-item flex flex-col items-center justify-center w-16 h-full ${currentView==='dashboard'?'active':''}"><i class="fa-solid fa-border-all text-xl mb-1"></i><span class="text-[10px] font-medium">Início</span></button><div class="w-16"></div><button onclick="window.dispatchEvent(new CustomEvent('nav', {detail:'metas'}))" class="bottom-nav-item flex flex-col items-center justify-center w-16 h-full ${currentView==='metas'?'active':''}"><i class="fa-solid fa-bullseye text-xl mb-1"></i><span class="text-[10px] font-medium">Metas</span></button></div>`;
         }
-
-        // LISTA DE TRANSAÇÕES HÍBRIDA (Mesa vs Mobile)
-        function renderTransactionList(arr) {
-            const filtered = arr.filter(t => filterByMonth(t)).sort((a,b) => (b.date?.toDate()||0) - (a.date?.toDate()||0));
-            
-            if (!filtered.length) return `<div class="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200"><i class="fa-solid fa-wind text-4xl text-slate-300 mb-3"></i><p class="text-slate-400 font-medium">Nenhum lançamento este mês</p></div>`;
-
-            // Versão Desktop (Tabela)
-            const desktopTable = `
-                <div class="hidden md:block card-clean overflow-hidden">
-                    <table class="w-full text-left">
-                        <thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold tracking-wider">
-                            <tr>
-                                <th class="py-4 px-6">Descrição</th>
-                                <th class="py-4 px-6">Categoria</th>
-                                <th class="py-4 px-6">Data</th>
-                                <th class="py-4 px-6 text-right">Valor</th>
-                                <th class="py-4 px-6 text-right w-20"></th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-50">
-                            ${filtered.map(t => {
-                                const isEntry = t.type === 'Entrada';
-                                return `
-                                    <tr class="hover:bg-slate-50 transition-colors group">
-                                        <td class="py-4 px-6 font-medium text-slate-700">${t.description}</td>
-                                        <td class="py-4 px-6 text-sm text-slate-500"><span class="bg-slate-100 px-2 py-1 rounded text-xs">${t.category}</span></td>
-                                        <td class="py-4 px-6 text-sm text-slate-500">${t.date?.toDate().toLocaleDateString('pt-BR')}</td>
-                                        <td class="py-4 px-6 text-right font-bold ${isEntry?'text-emerald-600':'text-rose-500'}">${isEntry?'+':'-'} ${formatCurrency(t.amount)}</td>
-                                        <td class="py-4 px-6 text-right opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button onclick="window.dispatchEvent(new CustomEvent('del', {detail:'${t.id}'}))" class="text-slate-400 hover:text-red-500"><i class="fa-solid fa-trash"></i></button>
-                                        </td>
-                                    </tr>`;
-                            }).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            `;
-
-            // Versão Mobile (Cards) - MELHORIA AQUI
-            const mobileList = `
-                <div class="md:hidden space-y-3 pb-24">
-                    ${filtered.map(t => {
-                        const isEntry = t.type === 'Entrada';
-                        return `
-                            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between active:scale-[0.99] transition-transform" onclick="window.dispatchEvent(new CustomEvent('edit', {detail:'${t.id}'}))">
-                                <div class="flex items-center gap-3.5 overflow-hidden">
-                                    <div class="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center ${isEntry ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-500'}">
-                                        <i class="fa-solid ${isEntry ? 'fa-arrow-up' : 'fa-arrow-down'}"></i>
-                                    </div>
-                                    <div class="min-w-0">
-                                        <p class="font-bold text-slate-800 text-sm truncate leading-tight mb-0.5">${t.description}</p>
-                                        <p class="text-xs text-slate-400 truncate">${t.category} • ${t.date?.toDate().toLocaleDateString('pt-BR').slice(0,5)}</p>
-                                    </div>
-                                </div>
-                                <div class="text-right pl-2 flex-shrink-0">
-                                    <p class="font-bold text-base ${isEntry ? 'text-emerald-600' : 'text-rose-600'}">${isEntry?'+':'-'}${formatCurrency(t.amount)}</p>
-                                </div>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-            `;
-
-            return desktopTable + mobileList;
-        }
-
-        function renderDashboard(user) {
-            const monthTrans = transactions.filter(filterByMonth);
-            const ent = monthTrans.filter(t => t.type === 'Entrada').reduce((s,t) => s+t.amount, 0);
-            const sai = monthTrans.filter(t => t.type === 'Saída').reduce((s,t) => s+t.amount, 0);
-            const prevM = getPreviousMonth(currentDateFilter);
-            const prevTrans = transactions.filter(t => filterByMonth(t, prevM));
-            const prevEnt = prevTrans.filter(t => t.type === 'Entrada').reduce((s,t) => s+t.amount, 0);
-            const prevSai = prevTrans.filter(t => t.type === 'Saída').reduce((s,t) => s+t.amount, 0);
-            const realBal = transactions.filter(filterByCurrentDate).reduce((s,t) => s + (t.type === 'Entrada' ? t.amount : -t.amount), 0);
-
-            document.getElementById('app').innerHTML = `
-                ${renderSidebar(user)}
-                ${renderMobileHeader(user)}
-                
-                <main class="flex-1 h-full overflow-y-auto md:pl-72 pt-20 md:pt-8 px-5 md:px-10 pb-32 md:pb-10 bg-sp-bg scroll-smooth">
-                    <div class="max-w-7xl mx-auto">
-                        <!-- Desktop Header -->
-                        <div class="hidden md:flex justify-between items-end mb-10">
-                            <div>
-                                <h2 class="text-3xl font-bold text-slate-900 tracking-tight">Visão Geral</h2>
-                                <p class="text-slate-500 mt-1">Resumo financeiro de <span class="font-semibold text-sp-primary">${currentDateFilter}</span></p>
-                            </div>
-                            <div class="flex items-center bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-                                <input type="month" id="desktop-date" value="${currentDateFilter}" class="bg-transparent border-none text-slate-700 text-sm font-bold px-3 py-1.5 cursor-pointer outline-none">
-                            </div>
-                        </div>
-
-                        <!-- Cards de Resumo -->
-                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-8">
-                            ${renderSummaryCard("Entradas", ent, 'entrada', prevEnt)}
-                            ${renderSummaryCard("Saídas", sai, 'saida', prevSai)}
-                            ${renderSummaryCard("Lucro", ent - sai, 'lucro', prevEnt - prevSai)}
-                            ${renderSummaryCard("Em Caixa", realBal, 'saldo', null)}
-                        </div>
-
-                        <!-- Layout Principal -->
-                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            
-                            <!-- Coluna Principal -->
-                            <div class="lg:col-span-2 space-y-8">
-                                <div>
-                                    <div class="flex items-center justify-between mb-4 px-1">
-                                        <h3 class="font-bold text-lg text-slate-800">Movimentações</h3>
-                                    </div>
-                                    ${renderTransactionList(transactions)}
-                                </div>
-                            </div>
-
-                            <!-- Coluna Lateral (Desktop) / Modal-like (Mobile) -->
-                            <div class="lg:col-span-1">
-                                <div id="form-container" class="bg-white p-6 rounded-2xl shadow-soft border border-slate-100 md:sticky md:top-8">
-                                    ${renderForm()}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </main>
-                ${renderBottomNav()}
-                <button id="desktop-fab" class="hidden md:flex fixed bottom-10 right-10 w-16 h-16 bg-sp-highlight text-white rounded-full shadow-float items-center justify-center text-2xl z-50 hover:scale-110 transition-transform" onclick="document.getElementById('form-container').scrollIntoView({behavior:'smooth'})"><i class="fa-solid fa-plus"></i></button>
-                <div id="transaction-feedback" class="fixed top-6 right-6 z-[100] hidden px-6 py-4 rounded-xl shadow-2xl text-white text-sm font-bold animate-bounce"></div>
-            `;
-            attachEvents();
-        }
-
         function renderForm() {
             const isEdit = editingTransactionId !== null;
             const curr = isEdit ? transactions.find(t => t.id === editingTransactionId) || {} : {};
@@ -347,60 +197,25 @@
             return `
                 <div class="flex justify-between items-center mb-6">
                     <h3 class="font-bold text-lg text-slate-800">${isEdit ? 'Editar' : 'Novo'} Lançamento</h3>
-                    ${isEdit ? `<button onclick="cancelEdit()" class="text-xs text-slate-400 hover:text-slate-600">Cancelar</button>` : ''}
+                    ${isEdit ? `<button onclick="window.cancelEdit()" class="text-xs text-slate-400 hover:text-slate-600">Cancelar</button>` : ''}
                 </div>
                 <form id="trans-form" class="space-y-4">
                     <div class="bg-slate-50 p-2 rounded-xl flex gap-1">
-                        <button type="button" onclick="setType('Entrada')" class="flex-1 py-2 rounded-lg text-sm font-bold transition-all ${type==='Entrada'?'bg-white text-emerald-600 shadow-sm':'text-slate-400 hover:text-slate-600'}">Entrada</button>
-                        <button type="button" onclick="setType('Saída')" class="flex-1 py-2 rounded-lg text-sm font-bold transition-all ${type==='Saída'?'bg-white text-rose-600 shadow-sm':'text-slate-400 hover:text-slate-600'}">Saída</button>
+                        <button type="button" onclick="window.setType('Entrada')" class="flex-1 py-2 rounded-lg text-sm font-bold transition-all ${type==='Entrada'?'bg-white text-emerald-600 shadow-sm':'text-slate-400 hover:text-slate-600'}">Entrada</button>
+                        <button type="button" onclick="window.setType('Saída')" class="flex-1 py-2 rounded-lg text-sm font-bold transition-all ${type==='Saída'?'bg-white text-rose-600 shadow-sm':'text-slate-400 hover:text-slate-600'}">Saída</button>
                         <input type="hidden" id="type" value="${type}">
                     </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Valor</label>
-                        <div class="relative">
-                            <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">R$</span>
-                            <input id="amt" type="number" step="0.01" class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 outline-none focus:border-sp-primary focus:ring-1 focus:ring-sp-primary transition-all" placeholder="0,00" value="${curr.amount||''}" required>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Descrição</label>
-                        <input id="desc" type="text" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 outline-none focus:border-sp-primary transition-all" placeholder="Ex: Uber" value="${curr.description||''}">
-                    </div>
-
+                    <div><label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Valor</label><div class="relative"><span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">R$</span><input id="amt" type="number" step="0.01" class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 outline-none focus:border-sp-primary focus:ring-1 focus:ring-sp-primary transition-all" placeholder="0,00" value="${curr.amount||''}" required></div></div>
+                    <div><label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Descrição</label><input id="desc" type="text" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 outline-none focus:border-sp-primary transition-all" placeholder="Ex: Uber" value="${curr.description||''}"></div>
                     <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Categoria</label>
-                            <div class="relative">
-                                <select id="cat" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 outline-none appearance-none">
-                                    ${cats.map(c => `<option ${curr.category===c?'selected':''}>${c}</option>`).join('')}
-                                </select>
-                                <i class="fa-solid fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none"></i>
-                            </div>
-                            <button type="button" onclick="addCat()" class="text-[10px] text-sp-primary font-bold mt-1 hover:underline">+ Nova Categoria</button>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Data</label>
-                            <input id="date" type="date" value="${dateVal}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-500 outline-none">
-                        </div>
+                        <div><label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Categoria</label><div class="relative"><select id="cat" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 outline-none appearance-none">${cats.map(c => `<option ${curr.category===c?'selected':''}>${c}</option>`).join('')}</select><i class="fa-solid fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none"></i></div><button type="button" onclick="window.addCat()" class="text-[10px] text-sp-primary font-bold mt-1 hover:underline">+ Nova Categoria</button></div>
+                        <div><label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Data</label><input id="date" type="date" value="${dateVal}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-500 outline-none"></div>
                     </div>
-
-                    <button type="submit" class="w-full bg-sp-primary text-white py-4 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 active:scale-[0.98] transition-transform mt-2">
-                        ${isEdit?'Salvar Alterações':'Confirmar Lançamento'}
-                    </button>
-                </form>
-            `;
+                    <button type="submit" class="w-full bg-sp-primary text-white py-4 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 active:scale-[0.98] transition-transform mt-2">${isEdit?'Salvar Alterações':'Confirmar Lançamento'}</button>
+                </form>`;
         }
-
         function renderSummaryCard(title, value, type, prev) {
-            const s = { 
-                lucro: { c: 'text-emerald-600', i: 'fa-wallet', bg: 'bg-emerald-50' }, 
-                entrada: { c: 'text-blue-600', i: 'fa-arrow-up', bg: 'bg-blue-50' }, 
-                saida: { c: 'text-rose-500', i: 'fa-arrow-down', bg: 'bg-rose-50' }, 
-                saldo: { c: 'text-indigo-600', i: 'fa-building-columns', bg: 'bg-indigo-50' } 
-            }[type];
-            
+            const s = { lucro: { c: 'text-emerald-600', i: 'fa-wallet', bg: 'bg-emerald-50' }, entrada: { c: 'text-blue-600', i: 'fa-arrow-up', bg: 'bg-blue-50' }, saida: { c: 'text-rose-500', i: 'fa-arrow-down', bg: 'bg-rose-50' }, saldo: { c: 'text-indigo-600', i: 'fa-building-columns', bg: 'bg-indigo-50' } }[type];
             let trend = '';
             if (prev !== null) {
                 const { v, t } = calculateGrowth(value, prev);
@@ -408,151 +223,129 @@
                 if (type === 'saida') cl = t === 'up' ? 'trend-down' : 'trend-up';
                 trend = `<span class="trend-tag ${cl} ml-2">${t==='up'?'▲':'▼'} ${v}%</span>`;
             }
+            return `<div class="card-clean p-5 flex flex-col justify-between h-28 relative"><div class="flex justify-between items-start mb-2"><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">${title}</span><div class="w-8 h-8 rounded-lg ${s.bg} flex items-center justify-center ${s.c} text-sm"><i class="fa-solid ${s.i}"></i></div></div><div class="flex items-baseline"><h3 class="text-2xl font-bold text-slate-800 tracking-tight">${formatCurrency(value)}</h3>${trend}</div></div>`;
+        }
+        function renderTransactionList(arr) {
+            const filtered = arr.filter(t => filterByMonth(t)).sort((a,b) => (b.date?.toDate()||0) - (a.date?.toDate()||0));
+            if (!filtered.length) return `<div class="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200"><i class="fa-solid fa-wind text-4xl text-slate-300 mb-3"></i><p class="text-slate-400 font-medium">Nenhum lançamento este mês</p></div>`;
+            const desktopTable = `<div class="hidden md:block card-clean overflow-hidden"><table class="w-full text-left"><thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold tracking-wider"><tr><th class="py-4 px-6">Descrição</th><th class="py-4 px-6">Categoria</th><th class="py-4 px-6">Data</th><th class="py-4 px-6 text-right">Valor</th><th class="py-4 px-6 text-right w-20"></th></tr></thead><tbody class="divide-y divide-slate-50">${filtered.map(t => { const isEntry = t.type === 'Entrada'; return `<tr class="hover:bg-slate-50 transition-colors group"><td class="py-4 px-6 font-medium text-slate-700">${t.description}</td><td class="py-4 px-6 text-sm text-slate-500"><span class="bg-slate-100 px-2 py-1 rounded text-xs">${t.category}</span></td><td class="py-4 px-6 text-sm text-slate-500">${t.date?.toDate().toLocaleDateString('pt-BR')}</td><td class="py-4 px-6 text-right font-bold ${isEntry?'text-emerald-600':'text-rose-500'}">${isEntry?'+':'-'} ${formatCurrency(t.amount)}</td><td class="py-4 px-6 text-right opacity-0 group-hover:opacity-100 transition-opacity"><button onclick="window.dispatchEvent(new CustomEvent('del', {detail:'${t.id}'}))" class="text-slate-400 hover:text-red-500"><i class="fa-solid fa-trash"></i></button></td></tr>`; }).join('')}</tbody></table></div>`;
+            const mobileList = `<div class="md:hidden space-y-3 pb-24">${filtered.map(t => { const isEntry = t.type === 'Entrada'; return `<div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between active:scale-[0.99] transition-transform" onclick="window.dispatchEvent(new CustomEvent('edit', {detail:'${t.id}'}))"><div class="flex items-center gap-3.5 overflow-hidden"><div class="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center ${isEntry ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-500'}"><i class="fa-solid ${isEntry ? 'fa-arrow-up' : 'fa-arrow-down'}"></i></div><div class="min-w-0"><p class="font-bold text-slate-800 text-sm truncate leading-tight mb-0.5">${t.description}</p><p class="text-xs text-slate-400 truncate">${t.category} • ${t.date?.toDate().toLocaleDateString('pt-BR').slice(0,5)}</p></div></div><div class="text-right pl-2 flex-shrink-0"><p class="font-bold text-base ${isEntry ? 'text-emerald-600' : 'text-rose-600'}">${isEntry?'+':'-'}${formatCurrency(t.amount)}</p></div></div>`; }).join('')}</div>`;
+            return desktopTable + mobileList;
+        }
+        function renderBudgetsView() {
+             const monthTrans = transactions.filter(t => filterByMonth(t, currentDateFilter));
+             const activeCategories = Object.keys(budgets);
+             if (activeCategories.length === 0) return `<div class="text-center py-20"><i class="fa-solid fa-bullseye text-6xl text-slate-200 mb-4"></i><h3 class="text-xl font-bold text-slate-700">Sem metas definidas</h3><p class="text-slate-500 mb-6">Crie metas para controlar seus gastos por categoria.</p><button onclick="window.addCat()" class="bg-sp-primary text-white px-6 py-3 rounded-xl font-bold shadow-lg">Criar Primeira Meta</button></div>`;
+             let items = activeCategories.map(cat => {
+                 const spent = monthTrans.filter(t => t.type === 'Saída' && t.category === cat).reduce((s,t) => s+t.amount, 0);
+                 const limit = budgets[cat]?.limit || 0;
+                 const pct = limit > 0 ? (spent/limit)*100 : 0;
+                 let color = pct > 100 ? 'bg-red-500' : (pct > 80 ? 'bg-amber-400' : 'bg-emerald-500');
+                 return `<div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 relative group"><button onclick="window.deleteBudget('${cat}')" class="absolute top-4 right-4 text-slate-300 hover:text-red-500"><i class="fa-solid fa-trash"></i></button><h3 class="font-bold text-slate-700 mb-2">${cat}</h3><div class="w-full bg-slate-100 rounded-full h-3 mb-4"><div class="${color} h-3 rounded-full transition-all duration-500" style="width:${Math.min(pct,100)}%"></div></div><div class="flex justify-between items-end"><div class="text-xs text-slate-500">Gasto: <span class="font-bold text-slate-800">${formatCurrency(spent)}</span></div><div class="text-right"><span class="text-[10px] text-slate-400 uppercase font-bold block">Meta</span><input type="number" value="${limit}" onchange="window.saveBudgetLimit('${cat}', this.value)" class="w-20 text-right font-bold text-slate-800 border-b border-slate-200 focus:border-sp-primary outline-none bg-transparent"></div></div></div>`;
+             }).join('');
+             return `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-24">${items}</div><button onclick="window.addCat()" class="fixed bottom-24 right-6 md:bottom-10 md:right-28 bg-white text-sp-primary w-12 h-12 rounded-full shadow-lg flex items-center justify-center border border-slate-100 hover:scale-110 transition"><i class="fa-solid fa-plus"></i></button>`;
+        }
+        function renderMonthlyReport(transactionsArray) {
+            const pnl = calculateMonthlyPnl(transactionsArray);
+            let rows = Object.entries(pnl).map(([p, d]) => {
+                const r = d.entradas - d.saidas;
+                return `<tr class="border-b border-slate-50 hover:bg-slate-50"><td class="py-3 px-4 text-sm font-medium text-slate-700">${p}</td><td class="py-3 px-4 text-sm text-emerald-600 text-right">+${formatCurrency(d.entradas)}</td><td class="py-3 px-4 text-sm text-red-500 text-right">-${formatCurrency(d.saidas)}</td><td class="py-3 px-4 text-sm font-bold ${r>=0?'text-indigo-600':'text-rose-600'} text-right">${formatCurrency(r)}</td></tr>`;
+            }).join('');
+            return `<div class="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden"><div class="p-4 border-b border-slate-100 bg-slate-50/50"><h3 class="font-bold text-xs text-slate-500 uppercase tracking-wider">Histórico Mensal</h3></div><div class="overflow-x-auto"><table class="w-full text-left"><tbody>${rows || '<tr><td class="p-6 text-center text-slate-400 text-sm">Sem histórico.</td></tr>'}</tbody></table></div></div>`;
+        }
+
+        // --- Rendering Main ---
+        function renderMainContent(user) {
+            const main = document.getElementById('main-content');
+            if(!main) return;
+
+            if (currentView === 'metas') {
+                main.innerHTML = renderBudgetsView();
+            } else {
+                main.innerHTML = renderDashboardContent(user);
+            }
+            attachEvents();
+        }
+
+        function renderDashboardContent(user) {
+            const monthTrans = transactions.filter(filterByMonth);
+            const ent = monthTrans.filter(t => t.type === 'Entrada').reduce((s,t) => s+t.amount, 0);
+            const sai = monthTrans.filter(t => t.type === 'Saída').reduce((s,t) => s+t.amount, 0);
+            const prevM = getPreviousMonth(currentDateFilter);
+            const prevTrans = transactions.filter(t => filterByMonth(t, prevM));
+            const prevEnt = prevTrans.filter(t => t.type === 'Entrada').reduce((s,t) => s+t.amount, 0);
+            const prevSai = prevTrans.filter(t => t.type === 'Saída').reduce((s,t) => s+t.amount, 0);
+            const realBal = transactions.filter(filterByCurrentDate).reduce((s,t) => s + (t.type === 'Entrada' ? t.amount : -t.amount), 0);
 
             return `
-                <div class="card-clean p-5 flex flex-col justify-between h-28 relative">
-                    <div class="flex justify-between items-start mb-2">
-                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">${title}</span>
-                        <div class="w-8 h-8 rounded-lg ${s.bg} flex items-center justify-center ${s.c} text-sm"><i class="fa-solid ${s.i}"></i></div>
-                    </div>
-                    <div class="flex items-baseline">
-                        <h3 class="text-2xl font-bold text-slate-800 tracking-tight">${formatCurrency(value)}</h3>
-                        ${trend}
-                    </div>
+                <div class="hidden md:flex justify-between items-end mb-10"><div><h2 class="text-3xl font-bold text-slate-900 tracking-tight">Visão Geral</h2><p class="text-slate-500 mt-1">Resumo financeiro de <span class="font-semibold text-sp-primary">${currentDateFilter}</span></p></div><div class="flex items-center bg-white p-1 rounded-xl border border-slate-200 shadow-sm"><input type="month" id="desktop-date" value="${currentDateFilter}" class="bg-transparent border-none text-slate-700 text-sm font-bold px-3 py-1.5 cursor-pointer outline-none"></div></div>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-8">${renderSummaryCard("Entradas", ent, 'entrada', prevEnt)}${renderSummaryCard("Saídas", sai, 'saida', prevSai)}${renderSummaryCard("Lucro", ent - sai, 'lucro', prevEnt - prevSai)}${renderSummaryCard("Em Caixa", realBal, 'saldo', null)}</div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div class="lg:col-span-2 space-y-6"><div class="flex items-center justify-between"><h3 class="font-bold text-lg text-slate-800">Movimentações</h3><button onclick="window.exportToCSV()" class="text-xs font-bold text-sp-primary md:hidden">CSV</button></div><div class="relative mb-4"><i class="fa-solid fa-search absolute left-3 top-3 text-gray-400 text-sm"></i><input id="search-input" type="text" placeholder="Buscar..." class="w-full bg-white pl-9 pr-4 py-2.5 rounded-xl border-none shadow-sm text-sm focus:ring-2 focus:ring-sp-primary outline-none" value="${currentFilters.search}"></div>${renderTransactionList(transactions)}</div>
+                    <div class="lg:col-span-1"><div id="form-container" class="bg-white p-6 rounded-2xl shadow-soft border border-slate-100 md:sticky md:top-8">${renderForm()}</div><div class="mt-6">${renderMonthlyReport(transactions)}</div></div>
                 </div>
             `;
         }
 
-        // --- Lógica ---
+        function renderApp(user) {
+            document.getElementById('app').innerHTML = `
+                ${renderSidebar(user)}
+                ${renderMobileHeader(user)}
+                <main id="main-content" class="flex-1 h-full overflow-y-auto md:pl-72 pt-20 md:pt-8 px-5 md:px-10 pb-32 md:pb-10 bg-sp-bg scroll-smooth"></main>
+                ${renderBottomNav()}
+                <button id="desktop-fab" class="hidden md:flex fixed bottom-10 right-10 w-16 h-16 bg-sp-highlight text-white rounded-full shadow-float items-center justify-center text-2xl z-50 hover:scale-110 transition-transform" onclick="window.scrollToForm()"><i class="fa-solid fa-plus"></i></button>
+                <button id="mobile-fab" class="md:hidden fixed bottom-6 left-1/2 transform -translate-x-1/2 w-14 h-14 bg-gradient-to-tr from-sp-highlight to-orange-500 text-white rounded-full shadow-float flex items-center justify-center text-2xl z-[70] active:scale-90 transition-transform border-4 border-white" onclick="window.scrollToForm()"><i class="fa-solid fa-plus"></i></button>
+                <div id="transaction-feedback" class="fixed top-6 right-6 z-[100] hidden px-6 py-4 rounded-xl shadow-2xl text-white text-sm font-bold animate-bounce"></div>
+            `;
+            renderMainContent(user);
+        }
+
+        // --- Event Logic ---
         function attachEvents() {
             const form = document.getElementById('trans-form');
-            if(form) form.onsubmit = async (e) => {
-                e.preventDefault();
-                const btn = form.querySelector('button[type="submit"]');
-                btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
-                try {
-                    const data = {
-                        description: document.getElementById('desc').value || 'Sem descrição',
-                        amount: parseFloat(document.getElementById('amt').value),
-                        type: document.getElementById('type').value,
-                        category: document.getElementById('cat').value,
-                        userId
-                    };
-                    const dateStr = document.getElementById('date').value;
-                    const dateObj = new Date(dateStr + 'T12:00:00');
-
-                    if (editingTransactionId) {
-                        await updateDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', editingTransactionId), { ...data, date: dateObj });
-                        showToast('Lançamento atualizado!', 'bg-blue-600');
-                    } else {
-                        await addDoc(collection(db, 'artifacts', appId, 'users', userId, 'transactions'), { ...data, date: dateObj });
-                        showToast('Lançamento adicionado!', 'bg-emerald-500');
-                    }
-                    editingTransactionId = null;
-                    renderMainContent({ displayName: auth.currentUser.displayName });
-                } catch(err) { console.error(err); showToast('Erro ao salvar', 'bg-red-500'); }
-            };
-
-            // Eventos de Data
-            ['mobile-date', 'desktop-date'].forEach(id => {
-                const el = document.getElementById(id);
-                if(el) el.onchange = (e) => { currentDateFilter = e.target.value; renderMainContent(auth.currentUser); };
-            });
-
-            // Botão FAB Mobile (Ação)
-            const fab = document.getElementById('fab-button');
-            if(fab) fab.onclick = () => {
-                if(currentView !== 'dashboard') { currentView = 'dashboard'; renderMainContent(auth.currentUser); }
-                setTimeout(() => {
-                    const el = document.getElementById('form-container');
-                    if(el) { 
-                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        // Realce visual
-                        el.classList.add('ring-2', 'ring-sp-primary');
-                        setTimeout(() => el.classList.remove('ring-2', 'ring-sp-primary'), 1000);
-                    }
-                }, 150);
-            };
-
-            window.setType = (t) => {
-                const currDesc = document.getElementById('desc').value;
-                const currAmt = document.getElementById('amt').value;
-                // Re-render form partially logic or just simple DOM manip
-                // For simplicity in this framework, we re-render the form section logic in state
-                // Ideally we just update DOM classes and Select options
-                const btnEnt = document.querySelector('button[onclick="setType(\'Entrada\')"]');
-                const btnSai = document.querySelector('button[onclick="setType(\'Saída\')"]');
-                const hiddenInput = document.getElementById('type');
-                const catSelect = document.getElementById('cat');
-                
-                hiddenInput.value = t;
-                if(t === 'Entrada') {
-                    btnEnt.className = "flex-1 py-2 rounded-lg text-sm font-bold transition-all bg-white text-emerald-600 shadow-sm";
-                    btnSai.className = "flex-1 py-2 rounded-lg text-sm font-bold transition-all text-slate-400 hover:text-slate-600";
-                } else {
-                    btnSai.className = "flex-1 py-2 rounded-lg text-sm font-bold transition-all bg-white text-rose-600 shadow-sm";
-                    btnEnt.className = "flex-1 py-2 rounded-lg text-sm font-bold transition-all text-slate-400 hover:text-slate-600";
-                }
-                
-                // Update categories
-                const cats = [...new Set([...(defaultCategories[t] || []), ...Object.keys(budgets)])];
-                catSelect.innerHTML = cats.map(c => `<option>${c}</option>`).join('');
-            };
-
-            window.addCat = () => { const c = prompt('Nova Categoria:'); if(c) { budgets[c]={limit:0}; renderMainContent(auth.currentUser); } }; // Mock for visual feedback, real implementation saves to DB if needed
-            window.cancelEdit = () => { editingTransactionId = null; renderMainContent(auth.currentUser); };
+            if(form) form.onsubmit = handleTransactionSubmit;
+            ['mobile-date', 'desktop-date'].forEach(id => { const el = document.getElementById(id); if(el) el.onchange = (e) => { currentDateFilter = e.target.value; renderMainContent(auth.currentUser); }; });
+            const search = document.getElementById('search-input');
+            if(search) { search.focus(); search.setSelectionRange(search.value.length, search.value.length); search.oninput = (e) => { currentFilters.search = e.target.value; renderMainContent(auth.currentUser); }; }
         }
 
-        function renderBudgetsView() {
-            // Placeholder simples para Metas
-             return `<div class="max-w-2xl mx-auto pt-10 text-center"><i class="fa-solid fa-person-digging text-4xl text-slate-300 mb-4"></i><h2 class="text-xl font-bold text-slate-700">Área de Metas</h2><p class="text-slate-400">Defina limites de gastos por categoria aqui.</p></div>`;
-        }
-
-        // Listeners
-        window.addEventListener('nav', (e) => { currentView = e.detail; renderMainContent(auth.currentUser); });
-        window.addEventListener('edit', (e) => { editingTransactionId = e.detail; renderMainContent(auth.currentUser); setTimeout(()=>document.getElementById('form-container').scrollIntoView({behavior:'smooth'}),100); });
-        window.addEventListener('del', async (e) => { if(confirm('Apagar?')) await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', e.detail)); });
-        window.exportToCSV = () => { alert("Exportando CSV..."); }; // Placeholder visual
-        
         function showToast(msg, color) {
             const t = document.getElementById('transaction-feedback');
             t.className = `fixed top-6 right-6 z-[100] px-6 py-4 rounded-xl shadow-2xl text-white text-sm font-bold animate-bounce ${color}`;
-            t.innerText = msg;
-            t.classList.remove('hidden');
-            setTimeout(()=>t.classList.add('hidden'), 3000);
+            t.innerText = msg; t.classList.remove('hidden'); setTimeout(()=>t.classList.add('hidden'), 2500);
         }
 
-        // Init
-        try {
-            app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    userId = user.uid;
-                    const q = query(collection(db, 'artifacts', appId, 'users', userId, 'transactions'));
-                    onSnapshot(q, (s) => { 
-                        transactions = s.docs.map(d => ({id:d.id, ...d.data()})); 
-                        renderDashboard(user); 
-                    });
-                } else {
-                    document.getElementById('app').innerHTML = `
-                        <div class="w-full h-full flex flex-col items-center justify-center bg-slate-50 p-6">
-                            <div class="w-16 h-16 bg-sp-primary rounded-2xl flex items-center justify-center text-white text-3xl shadow-xl mb-6"><i class="fa-solid fa-chart-simple"></i></div>
-                            <h1 class="text-2xl font-bold text-slate-800 mb-2">Flow Enterprise</h1>
-                            <p class="text-slate-400 mb-8 text-center">Gestão financeira inteligente para seu negócio.</p>
-                            <button onclick="signInWithPopup(auth, new GoogleAuthProvider())" class="bg-white text-slate-700 font-bold py-3.5 px-8 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex items-center gap-3">
-                                <i class="fa-brands fa-google text-red-500"></i> Entrar com Google
-                            </button>
-                        </div>`;
-                }
-            });
-        } catch(e) { console.error(e); }
-        
+        // --- GLOBAL EXPORTS (A "Ponte" Vital) ---
+        window.renderMainContent = renderMainContent;
+        window.setType = (t) => { document.getElementById('type').value = t; renderMainContent(auth.currentUser); };
+        window.addCat = () => { const c = prompt('Nome da Categoria:'); if(c) saveBudgetLimit(c, 0).then(() => renderMainContent(auth.currentUser)); };
+        window.cancelEdit = () => { editingTransactionId = null; renderMainContent(auth.currentUser); };
+        window.exportToCSV = exportToCSV;
+        window.scrollToForm = () => { if(currentView !== 'dashboard') { currentView = 'dashboard'; renderMainContent(auth.currentUser); } setTimeout(() => { document.getElementById('form-container')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 150); };
+        window.signOut = signOut;
+        window.saveBudgetLimit = saveBudgetLimit;
+        window.deleteBudget = deleteBudget;
         window.signInWithPopup = signInWithPopup;
         window.GoogleAuthProvider = GoogleAuthProvider;
         window.auth = auth;
-        window.signOut = signOut;
+        
+        window.addEventListener('nav', (e) => { currentView = e.detail; renderMainContent(auth.currentUser); });
+        window.addEventListener('edit', (e) => { editingTransactionId = e.detail; renderMainContent(auth.currentUser); setTimeout(()=>document.getElementById('form-container').scrollIntoView({behavior:'smooth'}),100); });
+        window.addEventListener('del', async (e) => { if(confirm('Excluir?')) await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', e.detail)); });
+
+        // --- Init ---
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                userId = user.uid;
+                const qT = query(collection(db, 'artifacts', appId, 'users', userId, 'transactions'));
+                onSnapshot(qT, (s) => { transactions = s.docs.map(d => ({id:d.id, ...d.data()})); renderMainContent(user); });
+                const qB = query(collection(db, 'artifacts', appId, 'users', userId, 'budgets'));
+                onSnapshot(qB, (s) => { budgets = {}; s.docs.forEach(d => budgets[d.id] = d.data()); renderMainContent(user); });
+                renderApp(user);
+            } else {
+                document.getElementById('app').innerHTML = `<div class="w-full h-full flex flex-col items-center justify-center bg-slate-50 p-6 absolute top-0 left-0 z-[100]"><div class="w-16 h-16 bg-sp-primary rounded-2xl flex items-center justify-center text-white text-3xl shadow-xl mb-6"><i class="fa-solid fa-chart-simple"></i></div><h1 class="text-2xl font-bold text-slate-800 mb-2">Flow Enterprise</h1><p class="text-slate-400 mb-8 text-center">Gestão financeira inteligente.</p><button onclick="signInWithPopup(auth, new GoogleAuthProvider())" class="bg-white text-slate-700 font-bold py-3.5 px-8 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex items-center gap-3"><i class="fa-brands fa-google text-red-500"></i> Entrar com Google</button></div>`;
+            }
+        });
     </script>
 </body>
 </html>
