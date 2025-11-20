@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestão Financeira Flow Enterprise</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'sp-primary': '#781F60', 
+                        'sp-secondary': '#952852', 
+                        'sp-danger': '#FF455B', 
+                        'sp-highlight': '#FF6E04', 
+                        'sp-success': '#10B981', 
+                        'sp-bg': '#F3F4F6',
+                        'sp-sidebar': '#1F2937' 
+                    },
+                    fontFamily: { sans: ['Inter', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+        .card-clean {
+            background: white; border-radius: 16px; border: 1px solid #E5E7EB;
+            box-shadow: 0 1px 3px 0 rgba(0,0,0,0.02); transition: all 0.3s ease;
+        }
+        .card-clean:hover { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); transform: translateY(-2px); }
+        .sidebar-gradient { background: linear-gradient(180deg, #2D1B36 0%, #1a1025 100%); }
+        .nav-item { cursor: pointer; }
+        .nav-item.active { background: rgba(255,255,255,0.1); border-left: 4px solid #FF6E04; }
+        .table-row-hover:hover td { background-color: #F9FAFB; }
+        .progress-bar-bg { background-color: #E5E7EB; border-radius: 9999px; height: 0.75rem; overflow: hidden; }
+        .progress-bar-fill { height: 100%; border-radius: 9999px; transition: width 0.5s ease-in-out; }
+    </style>
+</head>
+<body class="bg-sp-bg text-gray-800 h-screen overflow-hidden flex">
+
+    <div id="app" class="w-full h-full flex"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInWithCustomToken, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, query, onSnapshot, addDoc, setDoc, deleteDoc, doc, updateDoc, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- CONFIGURAÇÃO FIREBASE (MANTIDA CONFORME SOLICITADO) ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyCu3y_yz6CRit6wH9VG7Omp4bBPrplp1NE",
+            authDomain: "gestao-seguuir-play.firebaseapp.com",
+            projectId: "gestao-seguuir-play",
+            storageBucket: "gestao-seguuir-play.firebasestorage.app",
+            messagingSenderId: "245381431458",
+            appId: "1:245381431458:web:cbf669ab9abc1f5ed797fb",
+            measurementId: "G-ZFV0YQ8M65"
+        };
+
+        // Inicialização com Tratamento de Erros
+        let app, db, auth;
+        let userId = null;
+        let transactions = [];
+        let budgets = {};
+        let unsubscribeTransactions = null;
+        let unsubscribeBudgets = null;
+        let editingTransactionId = null;
+        let currentView = 'dashboard';
+        let isDemoMode = false; // Flag para modo de segurança
+
+        const today = new Date();
+        let currentDateFilter = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+        let currentFilters = { type: 'Todos', category: 'Todas', search: '' };
+
+        const defaultCategories = {
+            'Entrada': ['Venda de Serviço', 'Venda de Produto', 'Recebimento de Cliente', 'Juros', 'Outras Receitas'],
+            'Saída': ['Salários', 'Aluguel', 'Marketing', 'Impostos', 'Escritório', 'Manutenção']
+        };
+        
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // --- Inicialização do Sistema ---
+        function initSystem() {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        console.log("Auth success");
+                        userId = user.uid;
+                        isDemoMode = false;
+                        setupRealtimeListeners();
+                        renderApp(user);
+                    } else {
+                        userId = null;
+                        renderLogin();
+                    }
+                });
+
+                // Tenta login automático se houver token, senão espera na tela de login
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    signInWithCustomToken(auth, __initial_auth_token).catch(e => {
+                        console.warn("Token login failed, enabling demo option", e);
+                        // Não força anonymous aqui para não gerar erro de restrição, deixa o usuário escolher
+                    });
+                }
+            } catch (e) {
+                console.error("Firebase init failed:", e);
+                // Se falhar a inicialização, renderiza login com opção demo
+                renderLogin();
+            }
+        }
+
+        // --- Modo Demo (Fallback) ---
+        function activateDemoMode() {
+            isDemoMode = true;
+            userId = 'demo-user';
+            
+            // Dados Fictícios para teste imediato
+            const d = new Date();
+            transactions = [
+                { id: '1', description: 'Recebimento Cliente A', amount: 5000, type: 'Entrada', category: 'Venda de Serviço', date: Timestamp.fromDate(new Date(d.getFullYear(), d.getMonth(), 5)) },
+                { id: '2', description: 'Aluguel Escritório', amount: 1200, type: 'Saída', category: 'Aluguel', date: Timestamp.fromDate(new Date(d.getFullYear(), d.getMonth(), 10)) },
+                { id: '3', description: 'Venda Produto X', amount: 350.50, type: 'Entrada', category: 'Venda de Produto', date: Timestamp.fromDate(new Date(d.getFullYear(), d.getMonth(), 12)) },
+                { id: '4', description: 'Marketing Ads', amount: 450, type: 'Saída', category: 'Marketing', date: Timestamp.fromDate(new Date(d.getFullYear(), d.getMonth(), 15)) }
+            ];
+            budgets = { 'Marketing': { limit: 1000, category: 'Marketing' }, 'Aluguel': { limit: 1500, category: 'Aluguel' } };
+            
+            renderApp({ displayName: 'Visitante (Demo)', email: 'modo@demo.com', uid: 'demo' });
+            showToast('Modo Demo Ativo (Dados Locais)', 'bg-yellow-600');
+        }
+
+        // --- Helpers ---
+        function formatCurrency(val) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val); }
+        
+        function filterByMonth(t, monthStr = currentDateFilter) {
+            if (!t.date) return false;
+            const d = t.date.toDate ? t.date.toDate() : new Date(t.date);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === monthStr;
+        }
+
+        function filterByCurrentDate(t) {
+             const d = t.date.toDate ? t.date.toDate() : new Date(t.date);
+             return d.getTime() <= Date.now();
+        }
+        
+        function getPreviousMonth(current) {
+            const [year, month] = current.split('-').map(Number);
+            const date = new Date(year, month - 1 - 1);
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        }
+
+        function calculateGrowth(current, previous) {
+            if (previous === 0) return current > 0 ? { val: 100, type: 'up' } : { val: 0, type: 'neutral' };
+            const diff = ((current - previous) / previous) * 100;
+            return { val: Math.abs(diff).toFixed(1), type: diff > 0 ? 'up' : (diff < 0 ? 'down' : 'neutral') };
+        }
+
+        function calculateMonthlyPnl(transactionsArray) {
+            const monthlyData = {};
+            transactionsArray.forEach(t => {
+                if (!t.date) return;
+                const date = t.date.toDate ? t.date.toDate() : new Date(t.date);
+                const monthKey = `${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+                if (!monthlyData[monthKey]) monthlyData[monthKey] = { entradas: 0, saidas: 0 };
+                if (t.type === 'Entrada') monthlyData[monthKey].entradas += t.amount;
+                else if (t.type === 'Saída') monthlyData[monthKey].saidas += t.amount;
+            });
+            return Object.keys(monthlyData).sort((a, b) => {
+                const [mA, yA] = a.split('/');
+                const [mB, yB] = b.split('/');
+                return new Date(yB, mB - 1) - new Date(yA, mA - 1);
+            }).reduce((obj, key) => { obj[key] = monthlyData[key]; return obj; }, {});
+        }
+
+        function exportToCSV() {
+            const monthTrans = transactions.filter(t => filterByMonth(t, currentDateFilter));
+            if (monthTrans.length === 0) { showToast('Sem dados para exportar.', 'bg-gray-600'); return; }
+            const header = ["Data", "Descrição", "Categoria", "Tipo", "Valor (R$)"];
+            const rows = monthTrans.map(t => {
+                const d = t.date.toDate ? t.date.toDate() : new Date(t.date);
+                const date = d.toLocaleDateString('pt-BR');
+                const description = t.description ? t.description.replace(/"/g, '""') : '';
+                const category = t.category || '';
+                const type = t.type || '';
+                const amount = t.amount.toFixed(2).replace('.', ','); 
+                return `"${date}","${description}","${category}","${type}","${amount}"`;
+            });
+            const csvContent = "\uFEFF" + [header.join(","), ...rows].join("\r\n");
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `relatorio_${currentDateFilter}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showToast('Relatório baixado!', 'bg-blue-600');
+        }
+
+        // --- Lógica de Dados (Híbrida: Firebase / Demo) ---
+        async function saveBudgetLimit(category, limit) {
+            if(isDemoMode) {
+                budgets[category] = { limit: parseFloat(limit), category };
+                showToast('Meta salva (Demo)', 'bg-yellow-600');
+                renderMainContent({ displayName: 'Visitante' });
+                return;
+            }
+            try {
+                await setDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', category), {
+                    limit: parseFloat(limit),
+                    category: category,
+                    updatedAt: serverTimestamp()
+                });
+                showToast('Meta salva!', 'bg-sp-success');
+            } catch (e) { console.error(e); showToast('Erro ao salvar.', 'bg-red-500'); }
+        }
+
+        async function deleteBudget(category) {
+            if(!confirm(`Excluir a meta de "${category}"?`)) return;
+            if(isDemoMode) {
+                delete budgets[category];
+                showToast('Meta removida (Demo)', 'bg-yellow-600');
+                renderMainContent({ displayName: 'Visitante' });
+                return;
+            }
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', category));
+                showToast('Meta removida.', 'bg-gray-600');
+            } catch (e) { console.error(e); showToast('Erro ao excluir.', 'bg-red-500'); }
+        }
+
+        async function handleTransactionSubmit(e) {
+            e.preventDefault();
+            const btn = document.getElementById('form-submit-btn');
+            btn.disabled = true; btn.innerText = 'Salvando...';
+            
+            try {
+                const rawAmount = document.getElementById('amount').value.replace(',', '.');
+                if(isNaN(rawAmount)) throw new Error("Valor inválido");
+                
+                const data = {
+                    description: document.getElementById('description').value,
+                    amount: parseFloat(rawAmount),
+                    type: document.getElementById('type').value,
+                    category: document.getElementById('category').value,
+                    userId
+                };
+                const dateVal = document.getElementById('date-input').value;
+                const dateObj = new Date(dateVal + 'T12:00:00'); // Fix timezone
+
+                if (isDemoMode) {
+                    if (editingTransactionId) {
+                        const idx = transactions.findIndex(t => t.id === editingTransactionId);
+                        if(idx !== -1) transactions[idx] = { ...transactions[idx], ...data, date: Timestamp.fromDate(dateObj) };
+                        showToast('Atualizado (Demo)', 'bg-yellow-600');
+                        editingTransactionId = null;
+                    } else {
+                        transactions.push({ ...data, id: Math.random().toString(36).substr(2,9), date: Timestamp.fromDate(dateObj) });
+                        showToast('Salvo (Demo)', 'bg-yellow-600');
+                    }
+                    document.getElementById('transaction-form').reset();
+                    renderMainContent({ displayName: 'Visitante' });
+                } else {
+                    // Firebase
+                    const isRecurring = !editingTransactionId && document.getElementById('recurrence-check')?.checked;
+                    if (isRecurring) {
+                        const count = parseInt(document.getElementById('recurrence-count').value);
+                        const batch = [];
+                        for(let i=0; i<count; i++) {
+                            const d = new Date(dateObj); d.setMonth(d.getMonth()+i);
+                            batch.push(addDoc(collection(db, 'artifacts', appId, 'users', userId, 'transactions'), { ...data, date: d, description: i>0 ? `${data.description} (${i+1}/${count})` : data.description }));
+                        }
+                        await Promise.all(batch);
+                        showToast(`${count} lançamentos!`, 'bg-sp-success');
+                    } else {
+                        if(editingTransactionId) {
+                            await updateDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', editingTransactionId), { ...data, date: dateObj });
+                            showToast('Atualizado!', 'bg-blue-600');
+                            editingTransactionId = null;
+                        } else {
+                            await addDoc(collection(db, 'artifacts', appId, 'users', userId, 'transactions'), { ...data, date: dateObj });
+                            showToast('Salvo!', 'bg-sp-success');
+                        }
+                    }
+                    if(!editingTransactionId) document.getElementById('transaction-form').reset();
+                }
+            } catch(err) { console.error(err); showToast('Erro.', 'bg-red-500'); }
+            finally { btn.disabled = false; }
+        }
+
+        async function handleDelete(id) {
+            if(!confirm('Apagar?')) return;
+            if(isDemoMode) {
+                transactions = transactions.filter(t => t.id !== id);
+                showToast('Excluído (Demo)', 'bg-yellow-600');
+                renderMainContent({ displayName: 'Visitante' });
+                return;
+            }
+            await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', id));
+        }
+
+        // --- UI Components ---
+        function renderSidebar(user) {
+            return `
+                <aside class="w-64 sidebar-gradient text-white hidden md:flex flex-col shadow-2xl z-20">
+                    <div class="p-6 border-b border-white/10">
+                        <h1 class="text-2xl font-bold text-white flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-sp-highlight to-sp-danger flex items-center justify-center">
+                                <i class="fa-solid fa-arrow-trend-up text-white"></i>
+                            </div>
+                            Flow<span class="font-light text-gray-400">PRO</span>
+                        </h1>
+                    </div>
+                    <nav class="flex-1 p-4 space-y-2">
+                        <div onclick="window.dispatchEvent(new CustomEvent('nav-change', {detail: 'dashboard'}))" class="nav-item ${currentView === 'dashboard' ? 'active' : ''} flex items-center p-3 rounded-lg text-sm font-medium transition-all hover:bg-white/5 text-white">
+                            <i class="fa-solid fa-table-columns mr-3 text-xl w-6 text-center"></i> Dashboard
+                        </div>
+                        <div onclick="window.dispatchEvent(new CustomEvent('nav-change', {detail: 'metas'}))" class="nav-item ${currentView === 'metas' ? 'active' : ''} flex items-center p-3 rounded-lg text-sm font-medium transition-all hover:bg-white/5 text-white">
+                            <i class="fa-solid fa-bullseye mr-3 text-xl w-6 text-center"></i> Metas (Orçamento)
+                        </div>
+                        <div class="pt-4 pb-2 text-xs font-semibold text-gray-500 uppercase pl-3">Ações</div>
+                        <button id="sidebar-export-btn" class="nav-item w-full flex items-center p-3 rounded-lg text-gray-300 text-sm font-medium transition-all hover:bg-white/5 hover:text-white">
+                            <i class="fa-solid fa-file-csv mr-3 text-xl w-6 text-center"></i> Exportar CSV
+                        </button>
+                        <button id="logout-btn-sidebar" class="w-full flex items-center p-3 rounded-lg text-gray-300 text-sm font-medium transition-all hover:bg-white/5 hover:text-red-400">
+                            <i class="fa-solid fa-power-off mr-3 text-xl w-6 text-center"></i> Sair
+                        </button>
+                    </nav>
+                    <div class="p-4 border-t border-white/10 bg-black/20 flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-sp-primary flex items-center justify-center text-white font-bold border-2 border-sp-highlight">
+                            ${user.displayName ? user.displayName[0].toUpperCase() : 'U'}
+                        </div>
+                        <div class="overflow-hidden">
+                            <p class="text-sm font-medium text-white truncate">${user.displayName || 'Usuário'}</p>
+                            <p class="text-xs text-gray-400 truncate">${isDemoMode ? 'Modo Demo' : 'Conectado'}</p>
+                        </div>
+                    </div>
+                </aside>
+            `;
+        }
+
+        function renderBudgetsView() {
+            const monthTrans = transactions.filter(t => filterByMonth(t, currentDateFilter));
+            const activeCategories = Object.keys(budgets);
+            let budgetItems = activeCategories.map(cat => {
+                const spent = monthTrans.filter(t => t.type === 'Saída' && t.category === cat).reduce((s, t) => s + t.amount, 0);
+                const limit = budgets[cat]?.limit || 0;
+                const percentage = limit > 0 ? (spent / limit) * 100 : 0;
+                let colorClass = 'bg-sp-success';
+                if (percentage > 80) colorClass = 'bg-yellow-400';
+                if (percentage > 100) colorClass = 'bg-sp-danger';
+
+                return `<div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all relative group"><button onclick="window.dispatchEvent(new CustomEvent('delete-budget', {detail: '${cat}'}))" class="absolute top-2 right-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-2"><i class="fa-solid fa-trash"></i></button><div class="flex justify-between items-center mb-2"><h3 class="font-bold text-gray-700 text-lg">${cat}</h3><span class="text-xs font-bold px-2 py-1 rounded ${percentage > 100 ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600'}">${percentage.toFixed(0)}%</span></div><div class="progress-bar-bg mb-4"><div class="progress-bar-fill ${colorClass}" style="width: ${Math.min(percentage, 100)}%"></div></div><div class="flex justify-between items-center border-t border-gray-50 pt-3"><div class="text-sm text-gray-600">Gasto: <span class="font-bold text-gray-800">${formatCurrency(spent)}</span></div><div class="flex items-center gap-2"><span class="text-xs text-gray-400">Meta:</span><input type="number" value="${limit}" onchange="window.dispatchEvent(new CustomEvent('save-budget', {detail: {cat: '${cat}', val: this.value}}))" class="w-24 p-1 text-right text-sm border border-gray-200 rounded focus:ring-2 focus:ring-sp-primary outline-none"></div></div></div>`;
+            }).join('');
+
+            const addCard = `<div class="bg-white p-5 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-center hover:border-sp-primary transition-colors group h-full min-h-[180px]"><div class="w-12 h-12 rounded-full bg-gray-50 group-hover:bg-sp-primary group-hover:text-white flex items-center justify-center text-gray-400 transition-colors mb-3"><i class="fa-solid fa-plus text-xl"></i></div><h3 class="font-bold text-gray-700 mb-2">Nova Categoria</h3><form onsubmit="event.preventDefault(); window.dispatchEvent(new CustomEvent('save-budget', {detail: {cat: this.newcat.value, val: this.newval.value || 0}})); this.reset();" class="w-full"><input name="newcat" type="text" placeholder="Nome" class="w-full mb-2 p-2 text-sm border rounded outline-none" required><input name="newval" type="number" placeholder="Limite" class="w-full mb-3 p-2 text-sm border rounded outline-none" required><button type="submit" class="text-xs font-bold text-sp-primary uppercase hover:underline">Criar</button></form></div>`;
+
+            return `<div class="animate-fade-in-up max-w-6xl mx-auto"><div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4"><div><h2 class="text-2xl font-bold text-gray-900">Planejamento Orçamentário</h2><p class="text-gray-500 text-sm">Gerencie suas categorias de despesa e defina limites.</p></div><div class="bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200"><span class="text-xs text-gray-400 uppercase tracking-wider">Mês:</span><span class="font-bold text-sp-primary ml-1">${currentDateFilter}</span></div></div><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${budgetItems}${addCard}</div></div>`;
+        }
+
+        function renderTransactionForm() {
+            const isEditing = editingTransactionId !== null;
+            const currentTransaction = isEditing ? transactions.find(t => t.id === editingTransactionId) || {} : {};
+            let dateVal = new Date().toISOString().substring(0, 10);
+            if (isEditing && currentTransaction.date) {
+                const d = currentTransaction.date.toDate ? currentTransaction.date.toDate() : new Date(currentTransaction.date);
+                dateVal = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            }
+            const type = currentTransaction.type || 'Entrada';
+            const budgetCats = Object.keys(budgets);
+            const availableCats = Array.from(new Set([...(defaultCategories[type] || []), ...budgetCats]));
+            const catOpts = availableCats.map(c => `<option value="${c}" ${currentTransaction.category === c ? 'selected' : ''}>${c}</option>`).join('');
+
+            return `<div class="card-clean p-6 h-full border-t-4 border-sp-primary relative"><h3 class="font-bold text-lg text-gray-800 mb-4 flex items-center gap-2">${isEditing ? 'Editar' : 'Novo'} Lançamento</h3><form id="transaction-form" class="space-y-4"><div><label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Descrição</label><input id="description" type="text" value="${currentTransaction.description || ''}" class="w-full p-2.5 border rounded-lg outline-none text-sm" required></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Tipo</label><select id="type" class="w-full p-2.5 border rounded-lg outline-none text-sm"><option value="Entrada" ${type==='Entrada'?'selected':''}>Entrada</option><option value="Saída" ${type==='Saída'?'selected':''}>Saída</option></select></div><div><label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Valor</label><input id="amount" type="number" step="0.01" value="${currentTransaction.amount || ''}" class="w-full p-2.5 border rounded-lg outline-none text-sm" required></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Categoria</label><select id="category" class="w-full p-2.5 border rounded-lg outline-none text-sm">${catOpts}</select></div><div><label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Data</label><input id="date-input" type="date" value="${dateVal}" class="w-full p-2.5 border rounded-lg outline-none text-sm" required></div></div>${!isEditing ? `<div class="pt-2 border-t border-gray-100"><div class="flex items-center gap-2 mb-2"><input type="checkbox" id="recurrence-check" class="accent-sp-primary" onchange="document.getElementById('recurrence-options').classList.toggle('hidden')"><label for="recurrence-check" class="text-sm text-gray-600 cursor-pointer">Repetir lançamento?</label></div><div id="recurrence-options" class="hidden grid grid-cols-2 gap-3 bg-gray-50 p-3 rounded-lg"><select class="w-full p-1 text-sm border rounded" disabled><option>Mensal</option></select><input type="number" id="recurrence-count" min="2" max="12" value="2" class="w-full p-1 text-sm border rounded" placeholder="Meses"></div></div>` : ''}<div class="pt-4 flex gap-2"><button type="submit" id="form-submit-btn" class="flex-1 bg-sp-primary hover:bg-sp-secondary text-white font-bold py-2.5 rounded-lg shadow-lg active:scale-95 text-sm uppercase">${isEditing ? 'Salvar' : 'Adicionar'}</button>${isEditing ? `<button type="button" id="cancel-edit-btn" class="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50 text-sm">Cancelar</button>` : ''}</div></form></div>`;
+        }
+
+        function renderSummaryCard(title, value, type, previousValue) {
+            const s = { lucro: {color:'text-green-600', bg:'bg-green-50', icon:'fa-wallet'}, entrada: {color:'text-blue-600', bg:'bg-blue-50', icon:'fa-circle-arrow-up'}, saida: {color:'text-red-500', bg:'bg-red-50', icon:'fa-circle-arrow-down'}, saldo: {color:'text-sp-primary', bg:'bg-purple-50', icon:'fa-building-columns'} }[type];
+            let trend = '';
+            if (previousValue !== null) {
+                const { val, type: tt } = calculateGrowth(value, previousValue);
+                let cls = tt === 'up' ? 'trend-up' : (tt === 'down' ? 'trend-down' : 'trend-neutral');
+                if (type === 'saida') cls = tt === 'up' ? 'trend-down' : 'trend-up';
+                trend = `<span class="${cls} flex items-center gap-1"><i class="fa-solid ${tt === 'up' ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down'}"></i> ${val}%</span> <span class="text-xs text-gray-400 ml-1">vs mês ant.</span>`;
+            } else { trend = `<span class="text-xs text-gray-400">Saldo acumulado</span>`; }
+            return `<div class="card-clean p-5 flex flex-col justify-between h-32 relative overflow-hidden"><div class="flex justify-between items-start"><div><p class="text-xs font-bold text-gray-400 uppercase mb-1">${title}</p><p class="text-2xl font-bold text-gray-800">${formatCurrency(value)}</p></div><div class="w-10 h-10 rounded-full ${s.bg} flex items-center justify-center ${s.color}"><i class="fa-solid ${s.icon} text-lg"></i></div></div><div class="mt-auto pt-2 border-t border-gray-50 flex items-center">${trend}</div></div>`;
+        }
+
+        function renderTransactionList(transactionsArray) {
+            const monthFiltered = transactionsArray.filter(t => filterByMonth(t, currentDateFilter));
+            const filtered = monthFiltered.filter(t => {
+                const tMatch = currentFilters.type === 'Todos' || t.type === currentFilters.type;
+                const cMatch = currentFilters.category === 'Todas' || t.category === currentFilters.category;
+                const sMatch = !currentFilters.search || t.description.toLowerCase().includes(currentFilters.search.toLowerCase());
+                return tMatch && cMatch && sMatch;
+            });
+            if (filtered.length === 0) return `<div class="p-12 text-center text-gray-400 bg-white rounded-xl border border-dashed border-gray-300"><i class="fa-solid fa-inbox text-4xl mb-2 opacity-50"></i><p>Nenhum lançamento.</p></div>`;
+            const rows = filtered.sort((a, b) => {
+                const da = a.date.toDate ? a.date.toDate() : new Date(a.date);
+                const db = b.date.toDate ? b.date.toDate() : new Date(b.date);
+                return db - da;
+            }).map(t => {
+                const isEntry = t.type === 'Entrada';
+                const d = t.date.toDate ? t.date.toDate() : new Date(t.date);
+                const date = d.toLocaleDateString('pt-BR');
+                return `<tr class="border-b border-gray-50 table-row-hover transition-colors group"><td class="py-4 px-6"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center ${isEntry ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}"><i class="fa-solid ${isEntry ? 'fa-arrow-up' : 'fa-arrow-down'} text-xs"></i></div><div><p class="font-medium text-gray-900 text-sm">${t.description}</p><p class="text-xs text-gray-500 md:hidden">${date}</p></div></div></td><td class="py-4 px-6 text-xs text-gray-500 hidden md:table-cell"><span class="px-2 py-1 bg-gray-100 rounded-full">${t.category}</span></td><td class="py-4 px-6 text-xs text-gray-500 hidden md:table-cell">${date}</td><td class="py-4 px-6 text-right font-semibold text-sm ${isEntry ? 'text-green-600' : 'text-red-500'}">${isEntry ? '+' : '-'}${formatCurrency(t.amount)}</td><td class="py-4 px-6 text-right opacity-0 group-hover:opacity-100 transition-opacity"><button data-id="${t.id}" data-action="edit" class="text-gray-400 hover:text-sp-primary p-1.5"><i class="fa-solid fa-pen text-xs"></i></button><button data-id="${t.id}" data-action="delete" class="text-gray-400 hover:text-red-500 p-1.5 ml-1"><i class="fa-solid fa-trash text-xs"></i></button></td></tr>`;
+            }).join('');
+            return `<div class="card-clean overflow-hidden"><div class="px-6 py-4 border-b border-gray-100 flex flex-col lg:flex-row justify-between items-center gap-4 bg-white"><h3 class="font-bold text-gray-800 flex items-center gap-2 text-sm"><i class="fa-solid fa-list text-sp-secondary"></i> Lançamentos</h3><div class="flex flex-wrap items-center gap-2 text-xs w-full lg:w-auto justify-end"><div class="relative"><i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i><input type="text" id="filter-search" placeholder="Buscar..." class="pl-8 pr-3 py-1.5 bg-gray-50 border rounded-lg outline-none w-32 lg:w-40 transition-all focus:w-48"></div><select id="filter-type" class="bg-gray-50 border rounded-lg px-3 py-1.5 text-gray-600 outline-none"><option value="Todos">Tipo: Todos</option><option value="Entrada">Entradas</option><option value="Saída">Saídas</option></select><select id="filter-category" class="bg-gray-50 border rounded-lg px-3 py-1.5 text-gray-600 outline-none max-w-[140px]"><option value="Todas">Cat: Todas</option></select><button id="export-btn-trigger" class="hidden lg:inline-flex items-center px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors shadow-sm"><i class="fa-solid fa-download mr-1"></i> CSV</button></div></div><div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead class="bg-gray-50 text-gray-500 text-[10px] uppercase font-semibold tracking-wider"><tr><th class="py-3 px-6">Descrição</th><th class="py-3 px-6 hidden md:table-cell">Categoria</th><th class="py-3 px-6 hidden md:table-cell">Data</th><th class="py-3 px-6 text-right">Valor</th><th class="py-3 px-6 text-right w-24">Ações</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+        }
+
+        function renderExpenseChart(transactionsArray) {
+            const distribution = (function(arr){
+                const map = {}; let total = 0;
+                arr.filter(t => filterByMonth(t, currentDateFilter)).filter(t => t.type === 'Saída').forEach(t => {
+                    map[t.category] = (map[t.category] || 0) + t.amount; total += t.amount;
+                });
+                return { total, categories: Object.entries(map).map(([name, amount]) => ({ name, amount })).sort((a,b) => b.amount - a.amount) };
+            })(transactionsArray);
+            const total = distribution.total;
+            const colors = ['#FF455B', '#952852', '#FF6E04', '#781F60', '#64748B', '#94A3B8'];
+            if (total === 0) return `<div class="flex flex-col items-center justify-center h-64 text-gray-400"><i class="fa-solid fa-chart-pie text-4xl mb-2 opacity-20"></i><p>Sem despesas no período</p></div>`;
+            let cumulativePercent = 0; let paths = [];
+            distribution.categories.forEach((cat, i) => {
+                const pct = (cat.amount / total) * 100;
+                const dashArray = `${pct} ${100 - pct}`;
+                const offset = 25 - cumulativePercent;
+                paths.push(`<circle r="15.9155" cx="21" cy="21" fill="transparent" stroke="${colors[i % colors.length]}" stroke-width="5" stroke-dasharray="${dashArray}" stroke-dashoffset="${offset}" class="transition-all duration-500 hover:opacity-80"></circle>`);
+                cumulativePercent += pct;
+            });
+            const legend = distribution.categories.slice(0, 4).map((cat, i) => `<div class="flex items-center justify-between text-sm mb-2"><div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full" style="background:${colors[i % colors.length]}"></span><span class="text-gray-600 truncate max-w-[100px]">${cat.name}</span></div><span class="font-medium text-gray-800">${((cat.amount/total)*100).toFixed(0)}%</span></div>`).join('');
+            return `<div class="grid grid-cols-2 gap-4 items-center h-full"><div class="relative w-32 h-32 mx-auto group"><svg viewBox="0 0 42 42" class="w-full h-full block transform group-hover:scale-105 transition-transform duration-500"><circle cx="21" cy="21" r="15.9155" fill="transparent" stroke="#f3f4f6" stroke-width="5"></circle>${paths.join('')}</svg><div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"><span class="text-[10px] text-gray-400 font-medium">Total</span><span class="text-xs font-bold text-gray-800">R$</span></div></div><div class="overflow-y-auto max-h-40 pr-1 custom-scrollbar">${legend}</div></div>`;
+        }
+
+        function renderMainContent(user) {
+            const main = document.getElementById('main-content');
+            if(!main) return;
+            if (currentView === 'metas') {
+                main.innerHTML = renderBudgetsView();
+            } else {
+                const monthTrans = transactions.filter(t => filterByMonth(t, currentDateFilter));
+                const totalEntradas = monthTrans.filter(t => t.type === 'Entrada').reduce((s, t) => s + t.amount, 0);
+                const totalSaidas = monthTrans.filter(t => t.type === 'Saída').reduce((s, t) => s + t.amount, 0);
+                const lucro = totalEntradas - totalSaidas;
+                const prevMonthStr = getPreviousMonth(currentDateFilter);
+                const prevMonthTrans = transactions.filter(t => filterByMonth(t, prevMonthStr));
+                const prevEntradas = prevMonthTrans.filter(t => t.type === 'Entrada').reduce((s, t) => s + t.amount, 0);
+                const prevSaidas = prevMonthTrans.filter(t => t.type === 'Saída').reduce((s, t) => s + t.amount, 0);
+                const prevLucro = prevEntradas - prevSaidas;
+                const saldoReal = transactions.filter(filterByCurrentDate).reduce((s, t) => s + (t.type === 'Entrada' ? t.amount : -t.amount), 0);
+
+                main.innerHTML = `
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+                        <div><h2 class="text-2xl font-bold text-gray-900">Visão Geral</h2><p class="text-gray-500 text-sm">Bem-vindo, ${user.displayName || 'Gestor'}. ${isDemoMode ? '<span class="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-xs">Demo</span>' : ''}</p></div>
+                        <div class="flex items-center bg-white p-1.5 rounded-lg border shadow-sm"><span class="px-2 text-sp-primary"><i class="fa-regular fa-calendar"></i></span><input type="month" id="month-year-filter" value="${currentDateFilter}" class="bg-transparent border-none text-gray-700 text-sm font-semibold focus:ring-0 py-0.5 cursor-pointer"></div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">${renderSummaryCard("Entradas", totalEntradas, 'entrada', prevEntradas)}${renderSummaryCard("Saídas", totalSaidas, 'saida', prevSaidas)}${renderSummaryCard("Lucro Líquido", lucro, 'lucro', prevLucro)}${renderSummaryCard("Caixa Disponível", saldoReal, 'saldo', null)}</div>
+                    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
+                        <div class="xl:col-span-1 card-clean p-5 h-full min-h-[320px]"><h3 class="font-bold text-gray-800 mb-6 flex items-center gap-2 text-sm uppercase tracking-wide border-b border-gray-100 pb-2"><i class="fa-solid fa-chart-pie text-sp-highlight text-lg"></i> Despesas por Categoria</h3><div id="chart-container" class="h-full pb-6">${renderExpenseChart(transactions)}</div></div>
+                        <div class="xl:col-span-2" id="form-container">${renderTransactionForm()}</div>
+                    </div>
+                    <div id="list-container" class="mb-16 animate-fade-in-up">${renderTransactionList(transactions)}</div>
+                    <div class="mb-16">${renderMonthlyReport(transactions)}</div>
+                `;
+            }
+            attachDynamicEvents();
+        }
+        
+        // --- Configurações Globais UI ---
+        function attachGlobalEvents() {
+            document.getElementById('logout-btn-sidebar').onclick = () => isDemoMode ? window.location.reload() : signOut(auth);
+            const expBtn = document.getElementById('sidebar-export-btn'); if(expBtn) expBtn.onclick = exportToCSV;
+            const fab = document.getElementById('fab-button'); if(fab) fab.onclick = () => { window.dispatchEvent(new CustomEvent('nav-change', {detail: 'dashboard'})); setTimeout(() => document.getElementById('form-container')?.scrollIntoView({ behavior: 'smooth' }), 100); };
+            window.addEventListener('nav-change', (e) => { currentView = e.detail; renderApp(isDemoMode ? {displayName:'Visitante', email:'demo'} : auth.currentUser); });
+            window.addEventListener('save-budget', (e) => saveBudgetLimit(e.detail.cat, e.detail.val));
+            window.addEventListener('delete-budget', (e) => deleteBudget(e.detail));
+        }
+
+        function attachDynamicEvents() {
+            if (currentView === 'dashboard') {
+                document.getElementById('month-year-filter').onchange = (e) => { currentDateFilter = e.target.value; renderMainContent(isDemoMode ? {displayName:'Visitante'} : auth.currentUser); };
+                document.getElementById('transaction-form').onsubmit = handleTransactionSubmit;
+                const searchInput = document.getElementById('filter-search');
+                if(searchInput) { searchInput.value = currentFilters.search; searchInput.oninput = (e) => { currentFilters.search = e.target.value; renderMainContent(isDemoMode ? {displayName:'Visitante'} : auth.currentUser); document.getElementById('filter-search').focus(); }; }
+                const typeSel = document.getElementById('type');
+                if(typeSel) typeSel.onchange = (e) => { 
+                    const btn = document.getElementById('form-submit-btn'); if(btn && !editingTransactionId) btn.innerText = `Adicionar ${e.target.value}`;
+                    const catSel = document.getElementById('category'); const t = e.target.value; const budgetCats = Object.keys(budgets); const availableCats = Array.from(new Set([...(defaultCategories[t] || []), ...budgetCats])); catSel.innerHTML = availableCats.map(c => `<option value="${c}">${c}</option>`).join(''); 
+                };
+                const listCont = document.getElementById('list-container');
+                if(listCont) listCont.onclick = (e) => { const btn = e.target.closest('button'); if (!btn) return; const id = btn.dataset.id; if (btn.dataset.action === 'delete') handleDelete(id); if (btn.dataset.action === 'edit') handleEdit(id); };
+                const cancelBtn = document.getElementById('cancel-edit-btn'); if (cancelBtn) cancelBtn.onclick = () => { editingTransactionId = null; renderMainContent(isDemoMode ? {displayName:'Visitante'} : auth.currentUser); };
+            }
+        }
+
+        function showToast(msg, color) {
+            const t = document.getElementById('transaction-feedback');
+            if(t) { t.className = `fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-white text-sm font-bold animate-bounce ${color}`; t.innerText = msg; t.classList.remove('hidden'); setTimeout(()=>t.classList.add('hidden'), 3000); }
+        }
+
+        function renderApp(user) {
+            document.getElementById('app').innerHTML = `${renderSidebar(user)}<div class="md:hidden fixed top-0 left-0 right-0 h-16 bg-sp-primary z-30 flex items-center justify-between px-4 shadow-md"><h1 class="text-white font-bold text-lg">Flow PRO</h1><button onclick="window.location.reload()" class="text-white p-2"><i class="fa-solid fa-right-from-bracket text-xl"></i></button></div><main id="main-content" class="flex-1 h-full overflow-y-auto pt-20 md:pt-6 px-4 md:px-8 pb-8 bg-sp-bg relative"></main><button id="fab-button" class="md:hidden w-14 h-14 rounded-full bg-sp-highlight text-white flex items-center justify-center shadow-2xl hover:scale-105 transition"><i class="fa-solid fa-plus text-2xl"></i></button><div id="transaction-feedback" class="hidden"></div>`;
+            attachGlobalEvents();
+            renderMainContent(user);
+        }
+
+        function renderLogin() {
+            document.getElementById('app').innerHTML = `<div class="w-full h-full flex items-center justify-center bg-gray-100"><div class="bg-white p-10 rounded-2xl shadow-xl text-center max-w-sm w-full"><div class="w-16 h-16 bg-sp-primary rounded-xl flex items-center justify-center mx-auto mb-6 text-white text-3xl shadow-lg"><i class="fa-solid fa-arrow-trend-up"></i></div><h1 class="text-2xl font-bold text-gray-800 mb-2">Gestão Flow</h1><p class="text-gray-500 mb-8 text-sm">Login seguro.</p><button id="google-btn" class="w-full bg-white border hover:bg-gray-50 text-gray-700 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-3 transition-all shadow-sm"><i class="fa-brands fa-google text-red-500"></i> Entrar com Google</button><button onclick="activateDemoMode()" class="mt-4 text-xs text-gray-400 hover:text-sp-primary underline">Entrar sem login (Modo Demo)</button></div></div>`;
+            document.getElementById('google-btn').onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch(e => { console.error(e); activateDemoMode(); });
+        }
+        
+        function handleEdit(id) {
+            editingTransactionId = id; renderMainContent(isDemoMode ? {displayName:'Visitante'} : auth.currentUser);
+            if(window.innerWidth < 768) document.getElementById('form-container')?.scrollIntoView({behavior:'smooth'});
+        }
+
+        function setupRealtimeListeners() {
+             unsubscribeTransactions = onSnapshot(query(collection(db, 'artifacts', appId, 'users', userId, 'transactions')), (snap) => { transactions = snap.docs.map(d => ({ id: d.id, ...d.data(), amount: Number(d.data().amount) })); if(currentView === 'dashboard') renderMainContent(auth.currentUser); });
+             unsubscribeBudgets = onSnapshot(query(collection(db, 'artifacts', appId, 'users', userId, 'budgets')), (snap) => { budgets = {}; snap.docs.forEach(d => budgets[d.id] = d.data()); if(currentView === 'metas') renderMainContent(auth.currentUser); });
+        }
+
+        initSystem();
+    </script>
+</body>
+</html>
