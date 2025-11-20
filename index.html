@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gestão Flow Enterprise</title>
+    <title>Gestão Financeira Flow Enterprise</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -58,7 +58,6 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
-<!-- Body limpo para garantir layout correto -->
 <body class="h-screen w-full overflow-hidden flex flex-col md:flex-row text-slate-800">
 
     <div id="app" class="w-full h-full relative">
@@ -73,7 +72,7 @@
         import { getAuth, onAuthStateChanged, signInWithCustomToken, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, query, onSnapshot, addDoc, setDoc, deleteDoc, doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- CONFIGURAÇÃO (Gestão Flow - Produção) ---
+        // --- CONFIGURAÇÃO (Produção) ---
         const firebaseConfig = {
             apiKey: "AIzaSyA-vzJzqPjSrU1oAUmR5Prjp34Mq4fktxM",
             authDomain: "gestao-flow.firebaseapp.com",
@@ -130,62 +129,126 @@
             }).reduce((obj, key) => { obj[key] = monthlyData[key]; return obj; }, {});
         }
 
-        // --- Data Operations ---
-        async function handleTransactionSubmit(e) {
-            e.preventDefault();
-            const btn = document.querySelector('button[type="submit"]');
-            if(btn) { btn.disabled = true; btn.innerText = "..."; }
-            try {
-                const data = {
-                    description: document.getElementById('desc').value || 'Sem descrição',
-                    amount: parseFloat(document.getElementById('amt').value),
-                    type: document.getElementById('type').value,
-                    category: document.getElementById('cat').value,
-                    userId,
-                    date: new Date(document.getElementById('date').value + 'T12:00:00')
-                };
+        // --- Global Actions (Definidas ANTES de serem usadas no HTML) ---
+        
+        window.exportToCSV = function() {
+            const monthTrans = transactions.filter(t => filterByMonth(t));
+            if (monthTrans.length === 0) { showToast('Sem dados para exportar.', 'bg-gray-600'); return; }
+            const header = ["Data", "Descrição", "Categoria", "Tipo", "Valor (R$)"];
+            const rows = monthTrans.map(t => {
+                const d = t.date.toDate ? t.date.toDate() : new Date(t.date);
+                const date = d.toLocaleDateString('pt-BR');
+                const description = t.description ? t.description.replace(/"/g, '""') : '';
+                const category = t.category || '';
+                const type = t.type || '';
+                const amount = t.amount.toFixed(2).replace('.', ','); 
+                return `"${date}","${description}","${category}","${type}","${amount}"`;
+            });
+            const csvContent = "\uFEFF" + [header.join(","), ...rows].join("\r\n");
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `relatorio_${currentDateFilter}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showToast('Relatório baixado!', 'bg-blue-600');
+        };
 
-                if (editingTransactionId) {
-                    await updateDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', editingTransactionId), data);
-                    showToast('Atualizado!', 'bg-indigo-500');
-                } else {
-                    await addDoc(collection(db, 'artifacts', appId, 'users', userId, 'transactions'), data);
-                    showToast('Adicionado!', 'bg-emerald-500');
-                }
-                editingTransactionId = null;
-                if(currentView === 'dashboard') renderMainContent(auth.currentUser);
-            } catch(err) { console.error(err); showToast('Erro', 'bg-rose-500'); }
+        window.handleNav = function(view) {
+            currentView = view;
+            window.renderMainContent(auth.currentUser);
+        };
+
+        window.signOutApp = function() {
+            signOut(auth);
+        };
+
+        window.cancelEdit = function() {
+            editingTransactionId = null;
+            window.renderMainContent(auth.currentUser);
+        };
+
+        window.setType = function(t) {
+            const el = document.getElementById('type');
+            if(el) el.value = t;
+            window.renderMainContent(auth.currentUser); 
+        };
+
+        window.addCat = function() {
+            const c = prompt('Nome da Nova Categoria:');
+            if(c && c.trim() !== "") {
+                saveBudgetLimit(c.trim(), 0);
+            }
+        };
+        
+        window.deleteCatBtn = function() {
+            const catSelect = document.getElementById('cat');
+            if(!catSelect) return;
+            const selectedCat = catSelect.value;
+            const type = document.getElementById('type').value;
+            
+            if (defaultCategories[type].includes(selectedCat)) {
+                alert("Não é possível excluir categorias padrão do sistema.");
+                return;
+            }
+            deleteBudget(selectedCat);
         }
 
+        window.scrollToForm = function() {
+            if(currentView !== 'dashboard') { 
+                currentView = 'dashboard'; 
+                window.renderMainContent(auth.currentUser); 
+            }
+            setTimeout(() => { 
+                document.getElementById('form-container')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); 
+            }, 150);
+        };
+        
+        // Data operations
         async function saveBudgetLimit(cat, limit) {
-             await setDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', cat), { limit: parseFloat(limit), category: cat });
-             showToast('Meta salva', 'bg-indigo-500');
+             try {
+                 await setDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', cat), { limit: parseFloat(limit), category: cat });
+                 showToast('Categoria salva', 'bg-indigo-500');
+                 // UI updates automatically via snapshot
+             } catch(e) { console.error(e); }
         }
+        
         async function deleteBudget(cat) {
-             if(confirm('Excluir meta?')) { await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', cat)); } 
+             if(confirm(`Excluir a categoria "${cat}"?`)) { 
+                 await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', cat)); 
+             } 
         }
 
-        // --- Componentes UI ---
+        window.saveBudgetLimit = saveBudgetLimit;
+        window.deleteBudget = deleteBudget;
+
+
+        // --- UI Renderers ---
 
         function renderSidebar(user) {
             return `
                 <aside class="hidden md:flex w-72 sidebar-gradient text-white flex-col shadow-xl z-20 h-full fixed left-0 top-0">
                     <div class="p-8"><h1 class="text-2xl font-bold flex items-center gap-3 tracking-tight"><div class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20"><i class="fa-solid fa-chart-simple text-sp-highlight"></i></div>Flow<span class="font-light opacity-60">Enterprise</span></h1></div>
                     <nav class="flex-1 px-4 space-y-1">
-                        <div onclick="window.dispatchEvent(new CustomEvent('nav', {detail:'dashboard'}))" class="nav-item ${currentView==='dashboard'?'bg-white/10 text-white shadow-sm':'text-slate-300 hover:bg-white/5 hover:text-white'} flex items-center p-3.5 rounded-xl transition-all cursor-pointer mb-1"><i class="fa-solid fa-border-all mr-3 w-6 text-center text-lg"></i> <span class="font-medium">Visão Geral</span></div>
-                        <div onclick="window.dispatchEvent(new CustomEvent('nav', {detail:'metas'}))" class="nav-item ${currentView==='metas'?'bg-white/10 text-white shadow-sm':'text-slate-300 hover:bg-white/5 hover:text-white'} flex items-center p-3.5 rounded-xl transition-all cursor-pointer"><i class="fa-solid fa-bullseye mr-3 w-6 text-center text-lg"></i> <span class="font-medium">Metas</span></div>
+                        <div onclick="window.handleNav('dashboard')" class="nav-item ${currentView==='dashboard'?'bg-white/10 text-white shadow-sm':'text-slate-300 hover:bg-white/5 hover:text-white'} flex items-center p-3.5 rounded-xl transition-all cursor-pointer mb-1"><i class="fa-solid fa-border-all mr-3 w-6 text-center text-lg"></i> <span class="font-medium">Visão Geral</span></div>
+                        <div onclick="window.handleNav('metas')" class="nav-item ${currentView==='metas'?'bg-white/10 text-white shadow-sm':'text-slate-300 hover:bg-white/5 hover:text-white'} flex items-center p-3.5 rounded-xl transition-all cursor-pointer"><i class="fa-solid fa-bullseye mr-3 w-6 text-center text-lg"></i> <span class="font-medium">Metas</span></div>
                         <div class="mt-8 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Ferramentas</div>
                         <button onclick="window.exportToCSV()" class="w-full flex items-center p-3.5 rounded-xl text-slate-300 hover:bg-white/5 hover:text-white transition-all"><i class="fa-solid fa-file-export mr-3 w-6 text-center"></i> Exportar Dados</button>
                     </nav>
-                    <div class="p-6 border-t border-white/10 bg-black/10"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-sp-primary border-2 border-white/20 flex items-center justify-center font-bold text-sm shadow-lg">${user.displayName?user.displayName[0]:'U'}</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">${user.displayName||'Usuário'}</p><p class="text-xs text-slate-400 truncate">Conectado</p></div><button onclick="window.signOut(auth)" class="text-slate-400 hover:text-white transition"><i class="fa-solid fa-right-from-bracket"></i></button></div></div>
+                    <div class="p-6 border-t border-white/10 bg-black/10"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-sp-primary border-2 border-white/20 flex items-center justify-center font-bold text-sm shadow-lg">${user.displayName?user.displayName[0]:'U'}</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">${user.displayName||'Usuário'}</p><p class="text-xs text-slate-400 truncate">Conectado</p></div><button onclick="window.signOutApp()" class="text-slate-400 hover:text-white transition"><i class="fa-solid fa-right-from-bracket"></i></button></div></div>
                 </aside>`;
         }
+
         function renderMobileHeader(user) {
-            return `<div class="md:hidden fixed top-0 left-0 right-0 h-16 bg-white z-40 flex items-center justify-between px-5 shadow-sm border-b border-slate-100"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-lg bg-sp-primary flex items-center justify-center text-white shadow-md"><i class="fa-solid fa-chart-simple"></i></div><span class="font-bold text-slate-800 text-lg">Flow</span></div><div class="flex items-center gap-3"><div class="relative"><input type="month" id="mobile-date" value="${currentDateFilter}" class="w-8 h-8 opacity-0 absolute inset-0 z-10"><div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-sp-primary"><i class="fa-regular fa-calendar"></i></div></div><div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-600" onclick="window.signOut(auth)"><i class="fa-solid fa-right-from-bracket"></i></div></div></div>`;
+            return `<div class="md:hidden fixed top-0 left-0 right-0 h-16 bg-white z-40 flex items-center justify-between px-5 shadow-sm border-b border-slate-100"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-lg bg-sp-primary flex items-center justify-center text-white shadow-md"><i class="fa-solid fa-chart-simple"></i></div><span class="font-bold text-slate-800 text-lg">Flow</span></div><div class="flex items-center gap-3"><div class="relative"><input type="month" id="mobile-date" value="${currentDateFilter}" class="w-8 h-8 opacity-0 absolute inset-0 z-10"><div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-sp-primary"><i class="fa-regular fa-calendar"></i></div></div><div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-600" onclick="window.signOutApp()"><i class="fa-solid fa-right-from-bracket"></i></div></div></div>`;
         }
+
         function renderBottomNav() {
-            return `<div class="md:hidden fixed bottom-0 left-0 right-0 bottom-nav h-[72px] flex items-center justify-around z-[60] px-4 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]"><button onclick="window.dispatchEvent(new CustomEvent('nav', {detail:'dashboard'}))" class="bottom-nav-item flex flex-col items-center justify-center w-16 h-full ${currentView==='dashboard'?'active':''}"><i class="fa-solid fa-border-all text-xl mb-1"></i><span class="text-[10px] font-medium">Início</span></button><div class="w-16"></div><button onclick="window.dispatchEvent(new CustomEvent('nav', {detail:'metas'}))" class="bottom-nav-item flex flex-col items-center justify-center w-16 h-full ${currentView==='metas'?'active':''}"><i class="fa-solid fa-bullseye text-xl mb-1"></i><span class="text-[10px] font-medium">Metas</span></button></div>`;
+            return `<div class="md:hidden fixed bottom-0 left-0 right-0 bottom-nav h-[72px] flex items-center justify-around z-[60] px-4 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]"><button onclick="window.handleNav('dashboard')" class="bottom-nav-item flex flex-col items-center justify-center w-16 h-full ${currentView==='dashboard'?'active':''}"><i class="fa-solid fa-border-all text-xl mb-1"></i><span class="text-[10px] font-medium">Início</span></button><div class="w-16"></div><button onclick="window.handleNav('metas')" class="bottom-nav-item flex flex-col items-center justify-center w-16 h-full ${currentView==='metas'?'active':''}"><i class="fa-solid fa-bullseye text-xl mb-1"></i><span class="text-[10px] font-medium">Metas</span></button></div>`;
         }
+
         function renderForm() {
             const isEdit = editingTransactionId !== null;
             const curr = isEdit ? transactions.find(t => t.id === editingTransactionId) || {} : {};
@@ -208,12 +271,22 @@
                     <div><label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Valor</label><div class="relative"><span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">R$</span><input id="amt" type="number" step="0.01" class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 outline-none focus:border-sp-primary focus:ring-1 focus:ring-sp-primary transition-all" placeholder="0,00" value="${curr.amount||''}" required></div></div>
                     <div><label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Descrição</label><input id="desc" type="text" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 outline-none focus:border-sp-primary transition-all" placeholder="Ex: Uber" value="${curr.description||''}"></div>
                     <div class="grid grid-cols-2 gap-4">
-                        <div><label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Categoria</label><div class="relative"><select id="cat" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 outline-none appearance-none">${cats.map(c => `<option ${curr.category===c?'selected':''}>${c}</option>`).join('')}</select><i class="fa-solid fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none"></i></div><button type="button" onclick="window.addCat()" class="text-[10px] text-sp-primary font-bold mt-1 hover:underline">+ Nova Categoria</button></div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Categoria</label>
+                            <div class="relative">
+                                <select id="cat" class="w-full pl-3 pr-8 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 outline-none appearance-none">${cats.map(c => `<option ${curr.category===c?'selected':''}>${c}</option>`).join('')}</select>
+                                <div class="absolute right-0 top-0 h-full flex items-center">
+                                    <button type="button" onclick="window.addCat()" class="h-full px-2 text-gray-400 hover:text-sp-primary border-l border-slate-200"><i class="fa-solid fa-plus"></i></button>
+                                    <button type="button" onclick="window.deleteCatBtn()" class="h-full px-2 text-gray-400 hover:text-red-500 border-l border-slate-200"><i class="fa-solid fa-trash"></i></button>
+                                </div>
+                            </div>
+                        </div>
                         <div><label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Data</label><input id="date" type="date" value="${dateVal}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-500 outline-none"></div>
                     </div>
                     <button type="submit" class="w-full bg-sp-primary text-white py-4 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 active:scale-[0.98] transition-transform mt-2">${isEdit?'Salvar Alterações':'Confirmar Lançamento'}</button>
                 </form>`;
         }
+
         function renderSummaryCard(title, value, type, prev) {
             const s = { lucro: { c: 'text-emerald-600', i: 'fa-wallet', bg: 'bg-emerald-50' }, entrada: { c: 'text-blue-600', i: 'fa-arrow-up', bg: 'bg-blue-50' }, saida: { c: 'text-rose-500', i: 'fa-arrow-down', bg: 'bg-rose-50' }, saldo: { c: 'text-indigo-600', i: 'fa-building-columns', bg: 'bg-indigo-50' } }[type];
             let trend = '';
@@ -225,17 +298,29 @@
             }
             return `<div class="card-clean p-5 flex flex-col justify-between h-28 relative"><div class="flex justify-between items-start mb-2"><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">${title}</span><div class="w-8 h-8 rounded-lg ${s.bg} flex items-center justify-center ${s.c} text-sm"><i class="fa-solid ${s.i}"></i></div></div><div class="flex items-baseline"><h3 class="text-2xl font-bold text-slate-800 tracking-tight">${formatCurrency(value)}</h3>${trend}</div></div>`;
         }
+
         function renderTransactionList(arr) {
             const filtered = arr.filter(t => filterByMonth(t)).sort((a,b) => (b.date?.toDate()||0) - (a.date?.toDate()||0));
             if (!filtered.length) return `<div class="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200"><i class="fa-solid fa-wind text-4xl text-slate-300 mb-3"></i><p class="text-slate-400 font-medium">Nenhum lançamento este mês</p></div>`;
-            const desktopTable = `<div class="hidden md:block card-clean overflow-hidden"><table class="w-full text-left"><thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold tracking-wider"><tr><th class="py-4 px-6">Descrição</th><th class="py-4 px-6">Categoria</th><th class="py-4 px-6">Data</th><th class="py-4 px-6 text-right">Valor</th><th class="py-4 px-6 text-right w-20"></th></tr></thead><tbody class="divide-y divide-slate-50">${filtered.map(t => { const isEntry = t.type === 'Entrada'; return `<tr class="hover:bg-slate-50 transition-colors group"><td class="py-4 px-6 font-medium text-slate-700">${t.description}</td><td class="py-4 px-6 text-sm text-slate-500"><span class="bg-slate-100 px-2 py-1 rounded text-xs">${t.category}</span></td><td class="py-4 px-6 text-sm text-slate-500">${t.date?.toDate().toLocaleDateString('pt-BR')}</td><td class="py-4 px-6 text-right font-bold ${isEntry?'text-emerald-600':'text-rose-500'}">${isEntry?'+':'-'} ${formatCurrency(t.amount)}</td><td class="py-4 px-6 text-right opacity-0 group-hover:opacity-100 transition-opacity"><button onclick="window.dispatchEvent(new CustomEvent('del', {detail:'${t.id}'}))" class="text-slate-400 hover:text-red-500"><i class="fa-solid fa-trash"></i></button></td></tr>`; }).join('')}</tbody></table></div>`;
-            const mobileList = `<div class="md:hidden space-y-3 pb-24">${filtered.map(t => { const isEntry = t.type === 'Entrada'; return `<div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between active:scale-[0.99] transition-transform" onclick="window.dispatchEvent(new CustomEvent('edit', {detail:'${t.id}'}))"><div class="flex items-center gap-3.5 overflow-hidden"><div class="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center ${isEntry ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-500'}"><i class="fa-solid ${isEntry ? 'fa-arrow-up' : 'fa-arrow-down'}"></i></div><div class="min-w-0"><p class="font-bold text-slate-800 text-sm truncate leading-tight mb-0.5">${t.description}</p><p class="text-xs text-slate-400 truncate">${t.category} • ${t.date?.toDate().toLocaleDateString('pt-BR').slice(0,5)}</p></div></div><div class="text-right pl-2 flex-shrink-0"><p class="font-bold text-base ${isEntry ? 'text-emerald-600' : 'text-rose-600'}">${isEntry?'+':'-'}${formatCurrency(t.amount)}</p></div></div>`; }).join('')}</div>`;
+            
+            const desktopTable = `<div class="hidden md:block card-clean overflow-hidden"><table class="w-full text-left"><thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold tracking-wider"><tr><th class="py-4 px-6">Descrição</th><th class="py-4 px-6">Categoria</th><th class="py-4 px-6">Data</th><th class="py-4 px-6 text-right">Valor</th><th class="py-4 px-6 text-right w-20"></th></tr></thead><tbody class="divide-y divide-slate-50">${filtered.map(t => { 
+                const isEntry = t.type === 'Entrada'; 
+                return `<tr class="hover:bg-slate-50 transition-colors group"><td class="py-4 px-6 font-medium text-slate-700">${t.description}</td><td class="py-4 px-6 text-sm text-slate-500"><span class="bg-slate-100 px-2 py-1 rounded text-xs">${t.category}</span></td><td class="py-4 px-6 text-sm text-slate-500">${t.date?.toDate().toLocaleDateString('pt-BR')}</td><td class="py-4 px-6 text-right font-bold ${isEntry?'text-emerald-600':'text-rose-500'}">${isEntry?'+':'-'} ${formatCurrency(t.amount)}</td><td class="py-4 px-6 text-right opacity-0 group-hover:opacity-100 transition-opacity"><button onclick="window.dispatchEvent(new CustomEvent('del', {detail:'${t.id}'}))" class="text-slate-400 hover:text-red-500"><i class="fa-solid fa-trash"></i></button></td></tr>`; 
+            }).join('')}</tbody></table></div>`;
+            
+            const mobileList = `<div class="md:hidden space-y-3 pb-24">${filtered.map(t => { 
+                const isEntry = t.type === 'Entrada'; 
+                return `<div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between active:scale-[0.99] transition-transform" onclick="window.dispatchEvent(new CustomEvent('edit', {detail:'${t.id}'}))"><div class="flex items-center gap-3.5 overflow-hidden"><div class="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center ${isEntry ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-500'}"><i class="fa-solid ${isEntry ? 'fa-arrow-up' : 'fa-arrow-down'}"></i></div><div class="min-w-0"><p class="font-bold text-slate-800 text-sm truncate leading-tight mb-0.5">${t.description}</p><p class="text-xs text-slate-400 truncate">${t.category} • ${t.date?.toDate().toLocaleDateString('pt-BR').slice(0,5)}</p></div></div><div class="text-right pl-2 flex-shrink-0"><p class="font-bold text-base ${isEntry ? 'text-emerald-600' : 'text-rose-600'}">${isEntry?'+':'-'}${formatCurrency(t.amount)}</p></div></div>`; 
+            }).join('')}</div>`;
+            
             return desktopTable + mobileList;
         }
+
         function renderBudgetsView() {
              const monthTrans = transactions.filter(t => filterByMonth(t, currentDateFilter));
              const activeCategories = Object.keys(budgets);
              if (activeCategories.length === 0) return `<div class="text-center py-20"><i class="fa-solid fa-bullseye text-6xl text-slate-200 mb-4"></i><h3 class="text-xl font-bold text-slate-700">Sem metas definidas</h3><p class="text-slate-500 mb-6">Crie metas para controlar seus gastos por categoria.</p><button onclick="window.addCat()" class="bg-sp-primary text-white px-6 py-3 rounded-xl font-bold shadow-lg">Criar Primeira Meta</button></div>`;
+             
              let items = activeCategories.map(cat => {
                  const spent = monthTrans.filter(t => t.type === 'Saída' && t.category === cat).reduce((s,t) => s+t.amount, 0);
                  const limit = budgets[cat]?.limit || 0;
@@ -245,6 +330,7 @@
              }).join('');
              return `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-24">${items}</div><button onclick="window.addCat()" class="fixed bottom-24 right-6 md:bottom-10 md:right-28 bg-white text-sp-primary w-12 h-12 rounded-full shadow-lg flex items-center justify-center border border-slate-100 hover:scale-110 transition"><i class="fa-solid fa-plus"></i></button>`;
         }
+
         function renderMonthlyReport(transactionsArray) {
             const pnl = calculateMonthlyPnl(transactionsArray);
             let rows = Object.entries(pnl).map(([p, d]) => {
@@ -254,8 +340,8 @@
             return `<div class="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden"><div class="p-4 border-b border-slate-100 bg-slate-50/50"><h3 class="font-bold text-xs text-slate-500 uppercase tracking-wider">Histórico Mensal</h3></div><div class="overflow-x-auto"><table class="w-full text-left"><tbody>${rows || '<tr><td class="p-6 text-center text-slate-400 text-sm">Sem histórico.</td></tr>'}</tbody></table></div></div>`;
         }
 
-        // --- Rendering Main ---
-        function renderMainContent(user) {
+        // --- Core App Renderers (Exposed to Window) ---
+        window.renderMainContent = function(user) {
             const main = document.getElementById('main-content');
             if(!main) return;
 
@@ -297,16 +383,20 @@
                 <button id="mobile-fab" class="md:hidden fixed bottom-6 left-1/2 transform -translate-x-1/2 w-14 h-14 bg-gradient-to-tr from-sp-highlight to-orange-500 text-white rounded-full shadow-float flex items-center justify-center text-2xl z-[70] active:scale-90 transition-transform border-4 border-white" onclick="window.scrollToForm()"><i class="fa-solid fa-plus"></i></button>
                 <div id="transaction-feedback" class="fixed top-6 right-6 z-[100] hidden px-6 py-4 rounded-xl shadow-2xl text-white text-sm font-bold animate-bounce"></div>
             `;
-            renderMainContent(user);
+            window.renderMainContent(user);
         }
 
-        // --- Event Logic ---
         function attachEvents() {
             const form = document.getElementById('trans-form');
             if(form) form.onsubmit = handleTransactionSubmit;
-            ['mobile-date', 'desktop-date'].forEach(id => { const el = document.getElementById(id); if(el) el.onchange = (e) => { currentDateFilter = e.target.value; renderMainContent(auth.currentUser); }; });
+            ['mobile-date', 'desktop-date'].forEach(id => { const el = document.getElementById(id); if(el) el.onchange = (e) => { currentDateFilter = e.target.value; window.renderMainContent(auth.currentUser); }; });
             const search = document.getElementById('search-input');
-            if(search) { search.focus(); search.setSelectionRange(search.value.length, search.value.length); search.oninput = (e) => { currentFilters.search = e.target.value; renderMainContent(auth.currentUser); }; }
+            if(search) { 
+                search.focus(); 
+                // Fix cursor position
+                const val = search.value; search.value = ''; search.value = val; 
+                search.oninput = (e) => { currentFilters.search = e.target.value; window.renderMainContent(auth.currentUser); }; 
+            }
         }
 
         function showToast(msg, color) {
@@ -315,32 +405,21 @@
             t.innerText = msg; t.classList.remove('hidden'); setTimeout(()=>t.classList.add('hidden'), 2500);
         }
 
-        // --- GLOBAL EXPORTS (A "Ponte" Vital) ---
-        window.renderMainContent = renderMainContent;
-        window.setType = (t) => { document.getElementById('type').value = t; renderMainContent(auth.currentUser); };
-        window.addCat = () => { const c = prompt('Nome da Categoria:'); if(c) saveBudgetLimit(c, 0).then(() => renderMainContent(auth.currentUser)); };
-        window.cancelEdit = () => { editingTransactionId = null; renderMainContent(auth.currentUser); };
-        window.exportToCSV = exportToCSV;
-        window.scrollToForm = () => { if(currentView !== 'dashboard') { currentView = 'dashboard'; renderMainContent(auth.currentUser); } setTimeout(() => { document.getElementById('form-container')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 150); };
-        window.signOut = signOut;
-        window.saveBudgetLimit = saveBudgetLimit;
-        window.deleteBudget = deleteBudget;
+        // --- Init & Listeners ---
+        window.addEventListener('nav', (e) => { currentView = e.detail; window.renderMainContent(auth.currentUser); });
+        window.addEventListener('edit', (e) => { editingTransactionId = e.detail; window.renderMainContent(auth.currentUser); setTimeout(()=>document.getElementById('form-container').scrollIntoView({behavior:'smooth'}),100); });
+        window.addEventListener('del', async (e) => { if(confirm('Excluir?')) await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', e.detail)); });
         window.signInWithPopup = signInWithPopup;
         window.GoogleAuthProvider = GoogleAuthProvider;
         window.auth = auth;
-        
-        window.addEventListener('nav', (e) => { currentView = e.detail; renderMainContent(auth.currentUser); });
-        window.addEventListener('edit', (e) => { editingTransactionId = e.detail; renderMainContent(auth.currentUser); setTimeout(()=>document.getElementById('form-container').scrollIntoView({behavior:'smooth'}),100); });
-        window.addEventListener('del', async (e) => { if(confirm('Excluir?')) await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', e.detail)); });
 
-        // --- Init ---
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 userId = user.uid;
                 const qT = query(collection(db, 'artifacts', appId, 'users', userId, 'transactions'));
-                onSnapshot(qT, (s) => { transactions = s.docs.map(d => ({id:d.id, ...d.data()})); renderMainContent(user); });
+                onSnapshot(qT, (s) => { transactions = s.docs.map(d => ({id:d.id, ...d.data()})); window.renderMainContent(user); });
                 const qB = query(collection(db, 'artifacts', appId, 'users', userId, 'budgets'));
-                onSnapshot(qB, (s) => { budgets = {}; s.docs.forEach(d => budgets[d.id] = d.data()); renderMainContent(user); });
+                onSnapshot(qB, (s) => { budgets = {}; s.docs.forEach(d => budgets[d.id] = d.data()); window.renderMainContent(user); });
                 renderApp(user);
             } else {
                 document.getElementById('app').innerHTML = `<div class="w-full h-full flex flex-col items-center justify-center bg-slate-50 p-6 absolute top-0 left-0 z-[100]"><div class="w-16 h-16 bg-sp-primary rounded-2xl flex items-center justify-center text-white text-3xl shadow-xl mb-6"><i class="fa-solid fa-chart-simple"></i></div><h1 class="text-2xl font-bold text-slate-800 mb-2">Flow Enterprise</h1><p class="text-slate-400 mb-8 text-center">Gestão financeira inteligente.</p><button onclick="signInWithPopup(auth, new GoogleAuthProvider())" class="bg-white text-slate-700 font-bold py-3.5 px-8 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex items-center gap-3"><i class="fa-brands fa-google text-red-500"></i> Entrar com Google</button></div>`;
