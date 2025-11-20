@@ -43,7 +43,7 @@
         .progress-bar-bg { background-color: #E5E7EB; border-radius: 9999px; height: 0.75rem; overflow: hidden; }
         .progress-bar-fill { height: 100%; border-radius: 9999px; transition: width 0.5s ease-in-out; }
         
-        /* Animação de Carregamento */
+        /* Loader */
         .loader { border: 3px solid #f3f3f3; border-radius: 50%; border-top: 3px solid #781F60; width: 24px; height: 24px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
@@ -58,10 +58,11 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
         import { getAuth, onAuthStateChanged, signInWithCustomToken, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, query, onSnapshot, addDoc, setDoc, deleteDoc, doc, updateDoc, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- CONFIGURAÇÃO FIREBASE (gestao-flow - MODO PRODUÇÃO) ---
+        // --- CONFIGURAÇÃO DE PRODUÇÃO (GESTAO-FLOW) ---
         const firebaseConfig = {
             apiKey: "AIzaSyA-vzJzqPjSrU1oAUmR5Prjp34Mq4fktxM",
             authDomain: "gestao-flow.firebaseapp.com",
@@ -72,8 +73,19 @@
             measurementId: "G-ST8ZPZDDC1"
         };
 
-        // Variáveis Globais
-        let app, db, auth;
+        let app, db, auth, analytics;
+        try {
+            app = initializeApp(firebaseConfig);
+            analytics = getAnalytics(app);
+            db = getFirestore(app);
+            auth = getAuth(app);
+        } catch (e) {
+            console.error("Erro crítico Firebase:", e);
+        }
+        
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // --- Estado Global ---
         let userId = null;
         let transactions = [];
         let budgets = {};
@@ -81,8 +93,7 @@
         let unsubscribeBudgets = null;
         let editingTransactionId = null;
         let currentView = 'dashboard';
-        // A variável isDemoMode não existe mais, pois estamos em Produção
-
+        
         const today = new Date();
         let currentDateFilter = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
         let currentFilters = { type: 'Todos', category: 'Todas', search: '' };
@@ -91,43 +102,6 @@
             'Entrada': ['Venda de Serviço', 'Venda de Produto', 'Recebimento de Cliente', 'Juros', 'Outras Receitas'],
             'Saída': ['Salários', 'Aluguel', 'Marketing', 'Impostos', 'Escritório', 'Manutenção']
         };
-        
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-        // --- Inicialização do Sistema (Estrita de Produção) ---
-        function initSystem() {
-            try {
-                app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-
-                onAuthStateChanged(auth, (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        setupRealtimeListeners();
-                        renderApp(user);
-                    } else {
-                        userId = null;
-                        renderLogin();
-                    }
-                }, (error) => {
-                    // Em produção, falha de autenticação leva à tela de login
-                    console.error("Erro de Autenticação Firebase:", error);
-                    renderLogin(); 
-                });
-
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    signInWithCustomToken(auth, __initial_auth_token).catch(() => renderLogin());
-                } else {
-                    renderLogin();
-                }
-
-            } catch (e) {
-                console.error("Falha crítica na inicialização do Firebase:", e);
-                // Se a inicialização falhar (chaves incorretas), o sistema mostra um erro.
-                document.getElementById('app').innerHTML = '<div class="w-full h-full flex items-center justify-center bg-red-50"><p class="text-lg font-semibold text-red-700">Erro Crítico de Configuração.</p></div>';
-            }
-        }
 
         // --- Helpers ---
         function formatCurrency(val) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val); }
@@ -139,6 +113,7 @@
         }
 
         function filterByCurrentDate(t) {
+             if(!t.date) return false;
              const d = t.date.toDate ? t.date.toDate() : new Date(t.date);
              return d.getTime() <= Date.now();
         }
@@ -197,7 +172,7 @@
             showToast('Relatório baixado!', 'bg-blue-600');
         }
 
-        // --- Operações de Dados (Firestore) ---
+        // --- Operações de Dados ---
         async function saveBudgetLimit(category, limit) {
             try {
                 await setDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', category), {
@@ -205,15 +180,15 @@
                     category: category,
                     updatedAt: serverTimestamp()
                 });
-                showToast('Meta salva!', 'bg-sp-success');
+                showToast('Categoria salva!', 'bg-sp-success');
             } catch (e) { console.error(e); showToast('Erro ao salvar.', 'bg-red-500'); }
         }
 
         async function deleteBudget(category) {
-            if(!confirm(`Excluir a meta de "${category}"?`)) return;
+            if(!confirm(`Excluir a categoria "${category}"?`)) return;
             try {
                 await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'budgets', category));
-                showToast('Meta removida.', 'bg-gray-600');
+                showToast('Categoria removida.', 'bg-gray-600');
             } catch (e) { console.error(e); showToast('Erro ao excluir.', 'bg-red-500'); }
         }
 
@@ -221,40 +196,42 @@
             e.preventDefault();
             const btn = document.getElementById('form-submit-btn');
             btn.disabled = true; btn.innerText = 'Salvando...';
-            
             try {
+                const descInput = document.getElementById('description').value;
                 const data = {
-                    description: document.getElementById('description').value,
+                    description: descInput.trim() === '' ? 'Sem descrição' : descInput,
                     amount: parseFloat(document.getElementById('amount').value),
                     type: document.getElementById('type').value,
                     category: document.getElementById('category').value,
                     userId
                 };
-                const dateInput = document.getElementById('date-input').value;
-                const dateObj = new Date(dateInput + 'T12:00:00');
-
-                // Lógica de Recorrência
-                const isRecurring = !editingTransactionId && document.getElementById('recurrence-check')?.checked;
-                const count = isRecurring ? parseInt(document.getElementById('recurrence-count').value) : 1;
-
-                // Firebase Logic (Produção)
-                const batch = [];
-                for(let i=0; i<count; i++) {
-                     const d = new Date(dateObj); d.setMonth(d.getMonth()+i);
-                     const desc = i>0 ? `${data.description} (${i+1}/${count})` : data.description;
-                     if (editingTransactionId && i===0) {
-                        await updateDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', editingTransactionId), { ...data, date: dateObj });
-                     } else {
-                        batch.push(addDoc(collection(db, 'artifacts', appId, 'users', userId, 'transactions'), { ...data, date: d, description: desc }));
-                     }
-                }
-                if(batch.length > 0) await Promise.all(batch);
+                const dateVal = document.getElementById('date-input').value;
+                const dateObj = new Date(dateVal + 'T12:00:00'); 
                 
-                showToast(editingTransactionId ? 'Atualizado!' : 'Salvo!', 'bg-sp-success');
-                editingTransactionId = null;
-                document.getElementById('transaction-form').reset();
-
-            } catch(err) { console.error(err); showToast('Erro ao salvar no Firebase.', 'bg-red-500'); }
+                const isRecurring = !editingTransactionId && document.getElementById('recurrence-check')?.checked;
+                
+                if (isRecurring) {
+                    const count = parseInt(document.getElementById('recurrence-count').value);
+                    const batch = [];
+                    for(let i=0; i<count; i++) {
+                         const d = new Date(dateObj); d.setMonth(d.getMonth()+i);
+                         const desc = i>0 ? `${data.description} (${i+1}/${count})` : data.description;
+                         batch.push(addDoc(collection(db, 'artifacts', appId, 'users', userId, 'transactions'), { ...data, date: d, description: desc }));
+                    }
+                    await Promise.all(batch);
+                    showToast(`${count} lançamentos!`, 'bg-sp-success');
+                } else {
+                    if(editingTransactionId) {
+                        await updateDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', editingTransactionId), { ...data, date: dateObj });
+                        showToast('Atualizado!', 'bg-blue-600');
+                        editingTransactionId = null;
+                    } else {
+                        await addDoc(collection(db, 'artifacts', appId, 'users', userId, 'transactions'), { ...data, date: dateObj });
+                        showToast('Salvo!', 'bg-sp-success');
+                    }
+                }
+                if(!editingTransactionId) document.getElementById('transaction-form').reset();
+            } catch(err) { console.error(err); showToast('Erro.', 'bg-red-500'); }
             finally { btn.disabled = false; }
         }
 
@@ -262,43 +239,53 @@
             if(!confirm('Apagar?')) return;
             await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'transactions', id));
         }
+        
+        function quickAddCategory() {
+            const newCat = prompt("Nome da nova categoria:");
+            if(newCat && newCat.trim() !== "") {
+                saveBudgetLimit(newCat.trim(), 0);
+            }
+        }
 
-        // --- UI Components ---
+        function quickDeleteCategory() {
+            const catSelect = document.getElementById('category');
+            const selectedCat = catSelect.value;
+            const type = document.getElementById('type').value;
+            
+            if (defaultCategories[type].includes(selectedCat)) {
+                alert("Não é possível excluir categorias padrão do sistema.");
+                return;
+            }
+            deleteBudget(selectedCat);
+        }
+
+        // --- Componentes UI ---
+
+        function renderMonthlyReport(transactionsArray) {
+            const pnl = calculateMonthlyPnl(transactionsArray);
+            let rows = '';
+            for (const [period, data] of Object.entries(pnl)) {
+                const result = data.entradas - data.saidas;
+                const cls = result >= 0 ? 'text-green-600' : 'text-red-500';
+                rows += `<tr class="border-b border-gray-50 hover:bg-gray-50 transition"><td class="py-3 px-4 text-sm font-medium">${period}</td><td class="py-3 px-4 text-sm text-green-600 text-right">+${formatCurrency(data.entradas)}</td><td class="py-3 px-4 text-sm text-red-500 text-right">-${formatCurrency(data.saidas)}</td><td class="py-3 px-4 text-sm font-bold ${cls} text-right">${formatCurrency(result)}</td></tr>`;
+            }
+            return `<div class="card-clean h-full"><div class="p-4 border-b bg-white rounded-t-xl"><h3 class="font-bold text-sm text-gray-700 uppercase"><i class="fa-solid fa-chart-line text-sp-primary mr-2"></i> DRE Gerencial</h3></div><div class="overflow-x-auto"><table class="w-full text-left"><tbody>${rows || '<tr><td class="p-4 text-center text-gray-400 text-sm">Sem dados.</td></tr>'}</tbody></table></div></div>`;
+        }
+
         function renderSidebar(user) {
             return `
-                <aside class="w-64 sidebar-gradient text-white hidden md:flex flex-col shadow-2xl z-20">
+                <aside class="w-64 sidebar-gradient text-white hidden md:flex flex-col shadow-2xl z-20 h-full">
                     <div class="p-6 border-b border-white/10">
-                        <h1 class="text-2xl font-bold text-white flex items-center gap-2">
-                            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-sp-highlight to-sp-danger flex items-center justify-center">
-                                <i class="fa-solid fa-arrow-trend-up text-white"></i>
-                            </div>
-                            Flow<span class="font-light text-gray-400">PRO</span>
-                        </h1>
+                        <h1 class="text-2xl font-bold flex items-center gap-2"><div class="w-8 h-8 rounded-lg bg-gradient-to-br from-sp-highlight to-sp-danger flex items-center justify-center"><i class="fa-solid fa-arrow-trend-up"></i></div>Flow<span class="font-light text-gray-400">PRO</span></h1>
                     </div>
-                    <nav class="flex-1 p-4 space-y-2">
-                        <div onclick="window.dispatchEvent(new CustomEvent('nav-change', {detail: 'dashboard'}))" class="nav-item ${currentView === 'dashboard' ? 'active' : ''} flex items-center p-3 rounded-lg text-sm font-medium transition-all hover:bg-white/5 text-white">
-                            <i class="fa-solid fa-table-columns mr-3 text-xl w-6 text-center"></i> Dashboard
-                        </div>
-                        <div onclick="window.dispatchEvent(new CustomEvent('nav-change', {detail: 'metas'}))" class="nav-item ${currentView === 'metas' ? 'active' : ''} flex items-center p-3 rounded-lg text-sm font-medium transition-all hover:bg-white/5 text-white">
-                            <i class="fa-solid fa-bullseye mr-3 text-xl w-6 text-center"></i> Metas
-                        </div>
+                    <nav class="flex-1 p-4 space-y-2 overflow-y-auto">
+                        <div onclick="window.dispatchEvent(new CustomEvent('nav-change', {detail: 'dashboard'}))" class="nav-item ${currentView === 'dashboard' ? 'active' : ''} flex items-center p-3 rounded-lg text-sm font-medium hover:bg-white/5"><i class="fa-solid fa-table-columns mr-3 text-xl w-6 text-center"></i> Dashboard</div>
+                        <div onclick="window.dispatchEvent(new CustomEvent('nav-change', {detail: 'metas'}))" class="nav-item ${currentView === 'metas' ? 'active' : ''} flex items-center p-3 rounded-lg text-sm font-medium hover:bg-white/5"><i class="fa-solid fa-bullseye mr-3 text-xl w-6 text-center"></i> Metas</div>
                         <div class="pt-4 pb-2 text-xs font-semibold text-gray-500 uppercase pl-3">Ações</div>
-                        <button id="sidebar-export-btn" class="nav-item w-full flex items-center p-3 rounded-lg text-gray-300 text-sm font-medium transition-all hover:bg-white/5 hover:text-white">
-                            <i class="fa-solid fa-file-csv mr-3 text-xl w-6 text-center"></i> Exportar CSV
-                        </button>
-                        <button id="logout-btn-sidebar" class="w-full flex items-center p-3 rounded-lg text-gray-300 text-sm font-medium transition-all hover:bg-white/5 hover:text-red-400">
-                            <i class="fa-solid fa-power-off mr-3 text-xl w-6 text-center"></i> Sair
-                        </button>
+                        <button id="sidebar-export-btn" class="nav-item w-full flex items-center p-3 rounded-lg text-gray-300 text-sm font-medium hover:bg-white/5 hover:text-white"><i class="fa-solid fa-file-csv mr-3 text-xl w-6 text-center"></i> Exportar CSV</button>
+                        <button id="logout-btn-sidebar" class="w-full flex items-center p-3 rounded-lg text-gray-300 text-sm font-medium hover:bg-white/5 hover:text-red-400"><i class="fa-solid fa-power-off mr-3 text-xl w-6 text-center"></i> Sair</button>
                     </nav>
-                    <div class="p-4 border-t border-white/10 bg-black/20 flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-full bg-sp-primary flex items-center justify-center text-white font-bold border-2 border-sp-highlight">
-                            ${user.displayName ? user.displayName[0].toUpperCase() : 'U'}
-                        </div>
-                        <div class="overflow-hidden">
-                            <p class="text-sm font-medium text-white truncate">${user.displayName || 'Usuário'}</p>
-                            <p class="text-xs text-gray-400 truncate">Online</p>
-                        </div>
-                    </div>
+                    <div class="p-4 border-t border-white/10 bg-black/20 flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-sp-primary flex items-center justify-center font-bold border-2 border-sp-highlight">${user.displayName?user.displayName[0]:'U'}</div><div class="overflow-hidden"><p class="text-sm font-medium truncate">${user.displayName||'Usuário'}</p><p class="text-xs text-gray-400 truncate">Online</p></div></div>
                 </aside>
             `;
         }
@@ -310,16 +297,11 @@
                 const spent = monthTrans.filter(t => t.type === 'Saída' && t.category === cat).reduce((s, t) => s + t.amount, 0);
                 const limit = budgets[cat]?.limit || 0;
                 const percentage = limit > 0 ? (spent / limit) * 100 : 0;
-                let colorClass = 'bg-sp-success';
-                if (percentage > 80) colorClass = 'bg-yellow-400';
-                if (percentage > 100) colorClass = 'bg-sp-danger';
-
-                return `<div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all relative group"><button onclick="window.dispatchEvent(new CustomEvent('delete-budget', {detail: '${cat}'}))" class="absolute top-2 right-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-2"><i class="fa-solid fa-trash"></i></button><div class="flex justify-between items-center mb-2"><h3 class="font-bold text-gray-700 text-lg">${cat}</h3><span class="text-xs font-bold px-2 py-1 rounded ${percentage > 100 ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600'}">${percentage.toFixed(0)}%</span></div><div class="progress-bar-bg mb-4"><div class="progress-bar-fill ${colorClass}" style="width: ${Math.min(percentage, 100)}%"></div></div><div class="flex justify-between items-center border-t border-gray-50 pt-3"><div class="text-sm text-gray-600">Gasto: <span class="font-bold text-gray-800">${formatCurrency(spent)}</span></div><div class="flex items-center gap-2"><span class="text-xs text-gray-400">Meta:</span><input type="number" value="${limit}" onchange="window.dispatchEvent(new CustomEvent('save-budget', {detail: {cat: '${cat}', val: this.value}}))" class="w-24 p-1 text-right text-sm border border-gray-200 rounded focus:ring-2 focus:ring-sp-primary outline-none"></div></div></div>`;
+                let colorClass = percentage > 100 ? 'bg-sp-danger' : (percentage > 80 ? 'bg-yellow-400' : 'bg-sp-success');
+                return `<div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all relative group"><button onclick="window.dispatchEvent(new CustomEvent('delete-budget', {detail: '${cat}'}))" class="absolute top-2 right-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-2"><i class="fa-solid fa-trash"></i></button><div class="flex justify-between items-center mb-2"><h3 class="font-bold text-gray-700">${cat}</h3><span class="text-xs font-bold px-2 py-1 rounded ${percentage > 100 ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600'}">${percentage.toFixed(0)}%</span></div><div class="progress-bar-bg mb-4"><div class="progress-bar-fill ${colorClass}" style="width: ${Math.min(percentage, 100)}%"></div></div><div class="flex justify-between items-center border-t border-gray-50 pt-3"><div class="text-sm text-gray-600">Gasto: <span class="font-bold text-gray-800">${formatCurrency(spent)}</span></div><div class="flex items-center gap-2"><span class="text-xs text-gray-400">Meta:</span><input type="number" value="${limit}" onchange="window.dispatchEvent(new CustomEvent('save-budget', {detail: {cat: '${cat}', val: this.value}}))" class="w-24 p-1 text-right text-sm border border-gray-200 rounded focus:ring-2 focus:ring-sp-primary outline-none"></div></div></div>`;
             }).join('');
-
             const addCard = `<div class="bg-white p-5 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-center hover:border-sp-primary transition-colors group h-full min-h-[180px]"><div class="w-12 h-12 rounded-full bg-gray-50 group-hover:bg-sp-primary group-hover:text-white flex items-center justify-center text-gray-400 transition-colors mb-3"><i class="fa-solid fa-plus text-xl"></i></div><h3 class="font-bold text-gray-700 mb-2">Nova Categoria</h3><form onsubmit="event.preventDefault(); window.dispatchEvent(new CustomEvent('save-budget', {detail: {cat: this.newcat.value, val: this.newval.value || 0}})); this.reset();" class="w-full"><input name="newcat" type="text" placeholder="Nome" class="w-full mb-2 p-2 text-sm border rounded outline-none" required><input name="newval" type="number" placeholder="Limite" class="w-full mb-3 p-2 text-sm border rounded outline-none" required><button type="submit" class="text-xs font-bold text-sp-primary uppercase hover:underline">Criar</button></form></div>`;
-
-            return `<div class="animate-fade-in-up max-w-6xl mx-auto"><div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4"><div><h2 class="text-2xl font-bold text-gray-900">Planejamento Orçamentário</h2><p class="text-gray-500 text-sm">Gerencie suas categorias de despesa e defina limites.</p></div><div class="bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200"><span class="text-xs text-gray-400 uppercase tracking-wider">Mês:</span><span class="font-bold text-sp-primary ml-1">${currentDateFilter}</span></div></div><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${budgetItems}${addCard}</div></div>`;
+            return `<div class="animate-fade-in-up max-w-6xl mx-auto"><div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4"><div><h2 class="text-2xl font-bold text-gray-900">Planejamento</h2><p class="text-gray-500 text-sm">Defina limites.</p></div><div class="bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200"><span class="text-xs text-gray-400 uppercase tracking-wider">Mês:</span><span class="font-bold text-sp-primary ml-1">${currentDateFilter}</span></div></div><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${budgetItems}${addCard}</div></div>`;
         }
 
         function renderTransactionForm() {
@@ -335,7 +317,30 @@
             const availableCats = Array.from(new Set([...(defaultCategories[type] || []), ...budgetCats]));
             const catOpts = availableCats.map(c => `<option value="${c}" ${currentTransaction.category === c ? 'selected' : ''}>${c}</option>`).join('');
 
-            return `<div class="card-clean p-6 h-full border-t-4 border-sp-primary relative"><h3 class="font-bold text-lg text-gray-800 mb-4 flex items-center gap-2">${isEditing ? 'Editar' : 'Novo'} Lançamento</h3><form id="transaction-form" class="space-y-4"><div><label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Descrição</label><input id="description" type="text" value="${currentTransaction.description || ''}" class="w-full p-2.5 border rounded-lg outline-none text-sm" required></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Tipo</label><select id="type" class="w-full p-2.5 border rounded-lg outline-none text-sm"><option value="Entrada" ${type==='Entrada'?'selected':''}>Entrada</option><option value="Saída" ${type==='Saída'?'selected':''}>Saída</option></select></div><div><label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Valor</label><input id="amount" type="number" step="0.01" value="${currentTransaction.amount || ''}" class="w-full p-2.5 border rounded-lg outline-none text-sm" required></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Categoria</label><select id="category" class="w-full p-2.5 border rounded-lg outline-none text-sm">${catOpts}</select></div><div><label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Data</label><input id="date-input" type="date" value="${dateVal}" class="w-full p-2.5 border rounded-lg outline-none text-sm" required></div></div>${!isEditing ? `<div class="pt-2 border-t border-gray-100"><div class="flex items-center gap-2 mb-2"><input type="checkbox" id="recurrence-check" class="accent-sp-primary" onchange="document.getElementById('recurrence-options').classList.toggle('hidden')"><label for="recurrence-check" class="text-sm text-gray-600 cursor-pointer">Repetir lançamento?</label></div><div id="recurrence-options" class="hidden grid grid-cols-2 gap-3 bg-gray-50 p-3 rounded-lg"><select class="w-full p-1 text-sm border rounded" disabled><option>Mensal</option></select><input type="number" id="recurrence-count" min="2" max="12" value="2" class="w-full p-1 text-sm border rounded" placeholder="Meses"></div></div>` : ''}<div class="pt-4 flex gap-2"><button type="submit" id="form-submit-btn" class="flex-1 bg-sp-primary hover:bg-sp-secondary text-white font-bold py-2.5 rounded-lg shadow-lg active:scale-95 text-sm uppercase">${isEditing ? 'Salvar' : 'Adicionar'}</button>${isEditing ? `<button type="button" id="cancel-edit-btn" class="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50 text-sm">Cancelar</button>` : ''}</div></form></div>`;
+            return `
+                <div class="card-clean p-6 h-full border-t-4 border-sp-primary relative">
+                    <h3 class="font-bold text-lg text-gray-800 mb-4 flex items-center gap-2">${isEditing ? 'Editar' : 'Novo'} Lançamento</h3>
+                    <form id="transaction-form" class="space-y-4">
+                        <div>
+                            <label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Descrição (Opcional)</label>
+                            <input id="description" type="text" value="${currentTransaction.description || ''}" class="w-full p-2.5 border rounded-lg outline-none text-sm" placeholder="Ex: Pagamento X">
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div><label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Tipo</label><select id="type" class="w-full p-2.5 border rounded-lg outline-none text-sm"><option value="Entrada" ${type==='Entrada'?'selected':''}>Entrada</option><option value="Saída" ${type==='Saída'?'selected':''}>Saída</option></select></div>
+                            <div><label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Valor</label><input id="amount" type="number" step="0.01" value="${currentTransaction.amount || ''}" class="w-full p-2.5 border rounded-lg outline-none text-sm" required></div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Categoria</label>
+                                <div class="flex gap-1">
+                                    <select id="category" class="w-full p-2.5 border rounded-lg outline-none text-sm rounded-r-none border-r-0">${catOpts}</select>
+                                    <button type="button" id="btn-add-cat" class="px-2 bg-gray-100 border border-l-0 hover:bg-gray-200 text-gray-600" title="Nova Categoria"><i class="fa-solid fa-plus"></i></button>
+                                    <button type="button" id="btn-del-cat" class="px-2 bg-gray-100 border border-l-0 rounded-r-lg hover:bg-red-100 text-red-500" title="Excluir Categoria"><i class="fa-solid fa-trash"></i></button>
+                                </div>
+                            </div>
+                            <div><label class="text-xs font-bold text-gray-500 uppercase mb-1 block">Data</label><input id="date-input" type="date" value="${dateVal}" class="w-full p-2.5 border rounded-lg outline-none text-sm" required></div>
+                        </div>
+                        ${!isEditing ? `<div class="pt-2 border-t border-gray-100"><div class="flex items-center gap-2 mb-2"><input type="checkbox" id="recurrence-check" class="accent-sp-primary" onchange="document.getElementById('recurrence-options').classList.toggle('hidden')"><label for="recurrence-check" class="text-sm text-gray-600 cursor-pointer">Repetir lançamento?</label></div><div id="recurrence-options" class="hidden grid grid-cols-2 gap-3 bg-gray-50 p-3 rounded-lg"><select class="w-full p-1 text-sm border rounded" disabled><option>Mensal</option></select><input type="number" id="recurrence-count" min="2" max="12" value="2" class="w-full p-1 text-sm border rounded" placeholder="Meses"></div></div>` : ''}<div class="pt-4 flex gap-2"><button type="submit" id="form-submit-btn" class="flex-1 bg-sp-primary hover:bg-sp-secondary text-white font-bold py-2.5 rounded-lg shadow-lg active:scale-95 text-sm uppercase">${isEditing ? 'Salvar' : 'Adicionar'}</button>${isEditing ? `<button type="button" id="cancel-edit-btn" class="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50 text-sm">Cancelar</button>` : ''}</div></form></div>`;
         }
 
         function renderSummaryCard(title, value, type, previousValue) {
@@ -367,7 +372,7 @@
                 const isEntry = t.type === 'Entrada';
                 const d = t.date.toDate ? t.date.toDate() : new Date(t.date);
                 const date = d.toLocaleDateString('pt-BR');
-                return `<tr class="border-b border-gray-50 table-row-hover transition-colors group"><td class="py-4 px-6"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center ${isEntry ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}"><i class="fa-solid ${isEntry ? 'fa-arrow-up' : 'fa-arrow-down'} text-xs"></i></div><div><p class="font-medium text-gray-900 text-sm">${t.description}</p><p class="text-xs text-gray-500 md:hidden">${date}</p></div></div></td><td class="py-4 px-6 text-xs text-gray-500 hidden md:table-cell"><span class="px-2 py-1 bg-gray-100 rounded-full">${t.category}</span></td><td class="py-4 px-6 text-xs text-gray-500 hidden md:table-cell">${date}</td><td class="py-4 px-6 text-right font-semibold text-sm ${isEntry ? 'text-green-600' : 'text-red-500'}">${isEntry ? '+' : '-'}${formatCurrency(t.amount)}</td><td class="py-4 px-6 text-right opacity-0 group-hover:opacity-100 transition-opacity"><button data-id="${t.id}" data-action="edit" class="text-gray-400 hover:text-sp-primary p-1.5"><i class="fa-solid fa-pen text-xs"></i></button><button data-id="${t.id}" data-action="delete" class="text-gray-400 hover:text-red-500 p-1.5 ml-1"><i class="fa-solid fa-trash text-xs"></i></button></td></tr>`;
+                return `<tr class="border-b border-gray-50 table-row-hover transition-colors group"><td class="py-4 px-6"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center ${isEntry ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}"><i class="fa-solid ${isEntry ? 'fa-arrow-up' : 'fa-arrow-down'} text-xs"></i></div><div><p class="font-medium text-gray-900 text-sm truncate max-w-[150px] sm:max-w-none">${t.description}</p><p class="text-xs text-gray-500 md:hidden">${date}</p></div></div></td><td class="py-4 px-6 text-xs text-gray-500 hidden md:table-cell"><span class="px-2 py-1 bg-gray-100 rounded-full">${t.category}</span></td><td class="py-4 px-6 text-xs text-gray-500 hidden md:table-cell">${date}</td><td class="py-4 px-6 text-right font-semibold text-sm ${isEntry ? 'text-green-600' : 'text-red-500'}">${isEntry ? '+' : '-'}${formatCurrency(t.amount)}</td><td class="py-4 px-6 text-right opacity-0 group-hover:opacity-100 transition-opacity"><button data-id="${t.id}" data-action="edit" class="text-gray-400 hover:text-sp-primary p-1.5"><i class="fa-solid fa-pen text-xs"></i></button><button data-id="${t.id}" data-action="delete" class="text-gray-400 hover:text-red-500 p-1.5 ml-1"><i class="fa-solid fa-trash text-xs"></i></button></td></tr>`;
             }).join('');
             return `<div class="card-clean overflow-hidden"><div class="px-6 py-4 border-b border-gray-100 flex flex-col lg:flex-row justify-between items-center gap-4 bg-white"><h3 class="font-bold text-gray-800 flex items-center gap-2 text-sm"><i class="fa-solid fa-list text-sp-secondary"></i> Lançamentos</h3><div class="flex flex-wrap items-center gap-2 text-xs w-full lg:w-auto justify-end"><div class="relative"><i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i><input type="text" id="filter-search" placeholder="Buscar..." class="pl-8 pr-3 py-1.5 bg-gray-50 border rounded-lg outline-none w-32 lg:w-40 transition-all focus:w-48"></div><select id="filter-type" class="bg-gray-50 border rounded-lg px-3 py-1.5 text-gray-600 outline-none"><option value="Todos">Tipo: Todos</option><option value="Entrada">Entradas</option><option value="Saída">Saídas</option></select><select id="filter-category" class="bg-gray-50 border rounded-lg px-3 py-1.5 text-gray-600 outline-none max-w-[140px]"><option value="Todas">Cat: Todas</option></select><button id="export-btn-trigger" class="hidden lg:inline-flex items-center px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors shadow-sm"><i class="fa-solid fa-download mr-1"></i> CSV</button></div></div><div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead class="bg-gray-50 text-gray-500 text-[10px] uppercase font-semibold tracking-wider"><tr><th class="py-3 px-6">Descrição</th><th class="py-3 px-6 hidden md:table-cell">Categoria</th><th class="py-3 px-6 hidden md:table-cell">Data</th><th class="py-3 px-6 text-right">Valor</th><th class="py-3 px-6 text-right w-24">Ações</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
         }
@@ -393,17 +398,6 @@
             });
             const legend = distribution.categories.slice(0, 4).map((cat, i) => `<div class="flex items-center justify-between text-sm mb-2"><div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full" style="background:${colors[i % colors.length]}"></span><span class="text-gray-600 truncate max-w-[100px]">${cat.name}</span></div><span class="font-medium text-gray-800">${((cat.amount/total)*100).toFixed(0)}%</span></div>`).join('');
             return `<div class="grid grid-cols-2 gap-4 items-center h-full"><div class="relative w-32 h-32 mx-auto group"><svg viewBox="0 0 42 42" class="w-full h-full block transform group-hover:scale-105 transition-transform duration-500"><circle cx="21" cy="21" r="15.9155" fill="transparent" stroke="#f3f4f6" stroke-width="5"></circle>${paths.join('')}</svg><div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"><span class="text-[10px] text-gray-400 font-medium">Total</span><span class="text-xs font-bold text-gray-800">R$</span></div></div><div class="overflow-y-auto max-h-40 pr-1 custom-scrollbar">${legend}</div></div>`;
-        }
-
-        function renderMonthlyReport(transactionsArray) {
-            const data = calculateMonthlyPnl(transactionsArray);
-            const rows = Object.entries(data).map(([month, pnl]) => {
-                const lucro = pnl.entradas - pnl.saidas;
-                const lucroClass = lucro >= 0 ? 'text-green-600' : 'text-red-500';
-                return `<tr class="border-b border-gray-50 table-row-hover transition-colors"><td class="py-3 px-6 font-semibold">${month}</td><td class="py-3 px-6 text-right text-blue-600">${formatCurrency(pnl.entradas)}</td><td class="py-3 px-6 text-right text-red-500">${formatCurrency(pnl.saidas)}</td><td class="py-3 px-6 text-right font-bold ${lucroClass}">${formatCurrency(lucro)}</td></tr>`;
-            }).join('');
-            
-            return `<div class="card-clean overflow-hidden"><div class="px-6 py-4 border-b border-gray-100 bg-white"><h3 class="font-bold text-gray-800 flex items-center gap-2 text-sm uppercase tracking-wide"><i class="fa-solid fa-chart-line text-sp-highlight"></i> DRE Mensal (Resultado do Exercício)</h3></div><div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead class="bg-gray-50 text-gray-500 text-[10px] uppercase font-semibold tracking-wider"><tr><th class="py-3 px-6">Mês/Ano</th><th class="py-3 px-6 text-right">Entradas</th><th class="py-3 px-6 text-right">Saídas</th><th class="py-3 px-6 text-right">Lucro Líquido</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
         }
 
         function renderMainContent(user) {
@@ -443,7 +437,34 @@
         function attachGlobalEvents() {
             document.getElementById('logout-btn-sidebar').onclick = () => signOut(auth);
             const expBtn = document.getElementById('sidebar-export-btn'); if(expBtn) expBtn.onclick = exportToCSV;
-            const fab = document.getElementById('fab-button'); if(fab) fab.onclick = () => { window.dispatchEvent(new CustomEvent('nav-change', {detail: 'dashboard'})); setTimeout(() => document.getElementById('form-container')?.scrollIntoView({ behavior: 'smooth' }), 100); };
+            
+            // FAB BUTTON FIX: Logic to force scroll and focus correctly
+            const fab = document.getElementById('fab-button'); 
+            if(fab) fab.onclick = () => { 
+                // If not in dashboard, switch
+                if (currentView !== 'dashboard') {
+                    currentView = 'dashboard';
+                    renderMainContent(auth.currentUser);
+                    // Force sidebar update
+                    renderApp(auth.currentUser); 
+                }
+                
+                // Small delay to allow DOM to paint
+                setTimeout(() => {
+                    const form = document.getElementById('form-container');
+                    const desc = document.getElementById('description');
+                    if(form) {
+                        // Use both standard scroll and a forceful window scroll for mobile
+                        form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        if(desc) {
+                            desc.focus();
+                        }
+                    } else {
+                        console.warn("Form container not found on FAB click");
+                    }
+                }, 150);
+            };
+            
             window.addEventListener('nav-change', (e) => { currentView = e.detail; renderApp(auth.currentUser); });
             window.addEventListener('save-budget', (e) => saveBudgetLimit(e.detail.cat, e.detail.val));
             window.addEventListener('delete-budget', (e) => deleteBudget(e.detail));
@@ -463,6 +484,12 @@
                 const listCont = document.getElementById('list-container');
                 if(listCont) listCont.onclick = (e) => { const btn = e.target.closest('button'); if (!btn) return; const id = btn.dataset.id; if (btn.dataset.action === 'delete') handleDelete(id); if (btn.dataset.action === 'edit') handleEdit(id); };
                 const cancelBtn = document.getElementById('cancel-edit-btn'); if (cancelBtn) cancelBtn.onclick = () => { editingTransactionId = null; renderMainContent(auth.currentUser); };
+                
+                // Listeners de Categoria Rápida
+                const btnAddCat = document.getElementById('btn-add-cat');
+                if(btnAddCat) btnAddCat.onclick = quickAddCategory;
+                const btnDelCat = document.getElementById('btn-del-cat');
+                if(btnDelCat) btnDelCat.onclick = quickDeleteCategory;
             }
         }
 
@@ -472,14 +499,15 @@
         }
 
         function renderApp(user) {
-            document.getElementById('app').innerHTML = `${renderSidebar(user)}<div class="md:hidden fixed top-0 left-0 right-0 h-16 bg-sp-primary z-30 flex items-center justify-between px-4 shadow-md"><h1 class="text-white font-bold text-lg">Flow PRO</h1><button onclick="window.location.reload()" class="text-white p-2"><i class="fa-solid fa-right-from-bracket text-xl"></i></button></div><main id="main-content" class="flex-1 h-full overflow-y-auto pt-20 md:pt-6 px-4 md:px-8 pb-8 bg-sp-bg relative"></main><button id="fab-button" class="md:hidden w-14 h-14 rounded-full bg-sp-highlight text-white flex items-center justify-center shadow-2xl hover:scale-105 transition"><i class="fa-solid fa-plus text-2xl"></i></button><div id="transaction-feedback" class="hidden"></div>`;
+            // FAB com z-index 9999 e posicionamento fixo para garantir visibilidade em qualquer device
+            document.getElementById('app').innerHTML = `${renderSidebar(user)}<div class="md:hidden fixed top-0 left-0 right-0 h-16 bg-sp-primary z-30 flex items-center justify-between px-4 shadow-md"><h1 class="text-white font-bold text-lg">Flow PRO</h1><button onclick="window.location.reload()" class="text-white p-2"><i class="fa-solid fa-right-from-bracket text-xl"></i></button></div><main id="main-content" class="flex-1 h-full overflow-y-auto pt-20 md:pt-6 px-4 md:px-8 pb-8 bg-sp-bg relative"></main><button id="fab-button" class="w-16 h-16 rounded-full bg-sp-highlight text-white flex items-center justify-center shadow-2xl hover:scale-110 active:scale-90 transition duration-200 fixed bottom-8 right-8 z-[9999]" title="Novo Lançamento"><i class="fa-solid fa-plus text-3xl"></i></button><div id="transaction-feedback" class="hidden"></div>`;
             attachGlobalEvents();
             renderMainContent(user);
         }
 
         function renderLogin() {
             document.getElementById('app').innerHTML = `<div class="w-full h-full flex items-center justify-center bg-gray-100"><div class="bg-white p-10 rounded-2xl shadow-xl text-center max-w-sm w-full"><div class="w-16 h-16 bg-sp-primary rounded-xl flex items-center justify-center mx-auto mb-6 text-white text-3xl shadow-lg"><i class="fa-solid fa-arrow-trend-up"></i></div><h1 class="text-2xl font-bold text-gray-800 mb-2">Gestão Flow</h1><p class="text-gray-500 mb-8 text-sm">Login seguro.</p><button id="google-btn" class="w-full bg-white border hover:bg-gray-50 text-gray-700 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-3 transition-all shadow-sm"><i class="fa-brands fa-google text-red-500"></i> Entrar com Google</button></div></div>`;
-            document.getElementById('google-btn').onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch(e => { console.error("Login com Google falhou:", e); });
+            document.getElementById('google-btn').onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
         }
         
         function handleEdit(id) {
@@ -492,7 +520,26 @@
              unsubscribeBudgets = onSnapshot(query(collection(db, 'artifacts', appId, 'users', userId, 'budgets')), (snap) => { budgets = {}; snap.docs.forEach(d => budgets[d.id] = d.data()); if(currentView === 'metas') renderMainContent(auth.currentUser); });
         }
 
-        initSystem();
+        // Inicializa o app (sem analytics para evitar erro, se preferir)
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    userId = user.uid;
+                    setupRealtimeListeners();
+                    renderApp(user);
+                } else {
+                    userId = null;
+                    renderLogin();
+                }
+            });
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                 signInWithCustomToken(auth, __initial_auth_token).catch(() => signInAnonymously(auth));
+            }
+        } catch(e) { console.error(e); }
+
     </script>
 </body>
 </html>
